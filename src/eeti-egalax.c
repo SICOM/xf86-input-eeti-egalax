@@ -26,8 +26,8 @@
  *
  */
 
-/* Input device which doesn't output any event. This device can be used
- * as a core pointer or as a core keyboard.
+/*
+ * This device can be used as a core pointer or as a core keyboard.
  */
 
 #ifdef HAVE_CONFIG_H
@@ -51,7 +51,9 @@
 #include <X11/Xatom.h>
 #include <xserver-properties.h>
 
-#define MAXBUTTONS 3
+#include "eeti-egalax.h"
+
+#define MAXBUTTONS 1
 
 #if GET_ABI_MAJOR(ABI_XINPUT_VERSION) < 12
 #error "XINPUT ABI 12 required."
@@ -60,30 +62,33 @@
  * Function/Macro keys variables
  *****************************************************************************/
 
+
 static void
-BellProc(
-    int percent,
-    DeviceIntPtr pDev,
-    pointer ctrl,
-    int unused)
+PointerControlProc(DeviceIntPtr dev, PtrCtrl *ctrl)
 {
-    return;
+	return;
 }
 
 static void
-KeyControlProc(
-    DeviceIntPtr pDev,
-    KeybdCtrl *ctrl)
+xf86EETIeGalaxReadInput(InputInfoPtr pInfo)
 {
-    return;
 }
 
-static void
-PointerControlProc(
-    DeviceIntPtr dev,
-    PtrCtrl *ctrl)
+/*
+ * The ControlProc function may need to be tailored for your device
+ */
+static int
+xf86EETIeGalaxControlProc(InputInfoPtr pInfo, xDeviceCtl * control)
 {
-    return;
+	xDeviceAbsCalibCtl *c = (xDeviceAbsCalibCtl *) control;
+	EETIeGalaxPrivatePtr priv = (EETIeGalaxPrivatePtr) (pInfo->private);
+
+	priv->min_x = c->min_x;
+	priv->max_x = c->max_x;
+	priv->min_y = c->min_y;
+	priv->max_y = c->max_y;
+
+	return Success;
 }
 
 /*
@@ -92,95 +97,79 @@ PointerControlProc(
  * called to change the state of a device.
  */
 static int
-xf86EETIeGalaxControlProc(DeviceIntPtr device, int what)
+xf86EETIeGalaxDeviceControl(DeviceIntPtr device, int what)
 {
-    InputInfoPtr pInfo;
-    unsigned char map[MAXBUTTONS + 1];
-    unsigned char i;
-    Bool result;
-    Atom btn_labels[MAXBUTTONS] = {0};
-    Atom axes_labels[2] = {0};
+	InputInfoPtr pInfo = device->public.devicePrivate;
+	EETIeGalaxPrivatePtr priv = (EETIeGalaxPrivatePtr) (pInfo->private);
+	unsigned char map[MAXBUTTONS + 1] = {0, 1};
+	unsigned char i;
+	Bool result;
+	Atom btn_labels[MAXBUTTONS] = {0};
+	Atom axes_labels[2] = {0};
 
-    axes_labels[0] = XIGetKnownProperty(AXIS_LABEL_PROP_ABS_X);
-    axes_labels[1] = XIGetKnownProperty(AXIS_LABEL_PROP_ABS_Y);
+	axes_labels[0] = XIGetKnownProperty(AXIS_LABEL_PROP_ABS_X);
+	axes_labels[1] = XIGetKnownProperty(AXIS_LABEL_PROP_ABS_Y);
 
-    btn_labels[0] = XIGetKnownProperty(BTN_LABEL_PROP_BTN_LEFT);
-    btn_labels[1] = XIGetKnownProperty(BTN_LABEL_PROP_BTN_MIDDLE);
-    btn_labels[2] = XIGetKnownProperty(BTN_LABEL_PROP_BTN_RIGHT);
+	btn_labels[0] = XIGetKnownProperty(BTN_LABEL_PROP_BTN_LEFT);
+	btn_labels[1] = XIGetKnownProperty(BTN_LABEL_PROP_BTN_MIDDLE);
+	btn_labels[2] = XIGetKnownProperty(BTN_LABEL_PROP_BTN_RIGHT);
 
-    pInfo = device->public.devicePrivate;
-    
-    switch (what)
-    {
-    case DEVICE_INIT:
-	device->public.on = FALSE;
+	switch (what)
+	{
+	case DEVICE_INIT:
+		device->public.on = FALSE;
 
-	for (i = 0; i < MAXBUTTONS; i++) {
-	    map[i + 1] = i + 1;
-	}
+		for (i = 1; i <= MAXBUTTONS; i++)
+			map[i] = i;
 	
-	if (InitButtonClassDeviceStruct(device,
-					MAXBUTTONS,
-					btn_labels,
-					map) == FALSE) {
-	  ErrorF("unable to allocate Button class device\n");
-	  return !Success;
-	}
+		if (InitButtonClassDeviceStruct(device, MAXBUTTONS, btn_labels, map) == FALSE) {
+			ErrorF("Unable to allocate Button class device\n");
+			return !Success;
+		}
 
-	result = InitKeyboardDeviceStruct(device, NULL,
-					  BellProc, KeyControlProc);
-	if (!result) {
-	  ErrorF("unable to init keyboard device\n");
-	  return !Success;
-	}
+		if (InitValuatorClassDeviceStruct(device, 2, axes_labels, GetMotionHistorySize(), Absolute) == FALSE) {
+			ErrorF ("Unable to allocate Valuator class device\n");
+			return !Success;
+		}
 
-	if (InitValuatorClassDeviceStruct(device,
-					  2,
-					  axes_labels,
-					  0,
-					  Absolute) == FALSE) {
-	  InitValuatorAxisStruct(device,
-				 0,
-				 axes_labels[0],
-				 0, /* min val */1, /* max val */
-				 1, /* resolution */
-				 0, /* min_res */
-				 1, /* max_res */
-				 Absolute);
-	  InitValuatorAxisStruct(device,
-				 1,
-				 axes_labels[1],
-				 0, /* min val */1, /* max val */
-				 1, /* resolution */
-				 0, /* min_res */
-				 1, /* max_res */
-				 Absolute);
-	  ErrorF("unable to allocate Valuator class device\n"); 
-	  return !Success;
-	}
-	else {
-	  /* allocate the motion history buffer if needed */
-	  xf86MotionHistoryAllocate(pInfo);
-	}
-	if (InitPtrFeedbackClassDeviceStruct(device, PointerControlProc) == FALSE) {
-	  ErrorF("unable to init pointer feedback class device\n"); 
-	  return !Success;
-	}
-	break;
+		InitValuatorAxisStruct(device,
+							0,
+							axes_labels[0],
+							0, /* min val */1, /* max val */
+							1, /* resolution */
+							0, /* min_res */
+							1, /* max_res */
+							Absolute);
+		InitValuatorAxisStruct(device,
+							1,
+							axes_labels[1],
+							0, /* min val */1, /* max val */
+							1, /* resolution */
+							0, /* min_res */
+							1, /* max_res */
+							Absolute);
+		/* allocate the motion history buffer if needed */
+		xf86MotionHistoryAllocate(pInfo);
 
-    case DEVICE_ON:
-	device->public.on = TRUE;
-	break;
+		if (InitPtrFeedbackClassDeviceStruct(device, PointerControlProc) == FALSE) {
+			ErrorF("unable to init pointer feedback class device\n");
+			return !Success;
+		}
+		break;
 
-    case DEVICE_OFF:
-    case DEVICE_CLOSE:
-	device->public.on = FALSE;
-	break;
+	case DEVICE_ON:
+		device->public.on = TRUE;
+		break;
 
-    default:
-	return BadValue;
-    }
-    return Success;
+	case DEVICE_OFF:
+	case DEVICE_CLOSE:
+		device->public.on = FALSE;
+		break;
+
+	default:
+		return BadValue;
+	}
+	return Success;
 }
 
 /*
@@ -189,11 +178,9 @@ xf86EETIeGalaxControlProc(DeviceIntPtr device, int what)
  * called when the driver is unloaded.
  */
 static void
-xf86EETIeGalaxUninit(InputDriverPtr	drv,
-	       InputInfoPtr	pInfo,
-	       int		flags)
+xf86EETIeGalaxUninit(InputDriverPtr drv, InputInfoPtr pInfo, int flags)
 {
-    xf86EETIeGalaxControlProc(pInfo->dev, DEVICE_OFF);
+	xf86EETIeGalaxDeviceControl(pInfo->dev, DEVICE_OFF);
 }
 
 /*
@@ -202,28 +189,71 @@ xf86EETIeGalaxUninit(InputDriverPtr	drv,
  * called when the module subsection is found in XF86Config
  */
 static int
-xf86EETIeGalaxInit(InputDriverPtr	drv,
-	     InputInfoPtr	pInfo,
-	     int		flags)
+xf86EETIeGalaxInit(InputDriverPtr drv, InputInfoPtr pInfo, int flags)
 {
-    /* Initialise the InputInfoRec. */
-    pInfo->type_name = "EETIeGalax";
-    pInfo->device_control = xf86EETIeGalaxControlProc;
-    pInfo->read_input = NULL;
-    pInfo->control_proc = NULL;
-    pInfo->switch_mode = NULL;
-    pInfo->fd = -1;
+	EETIeGalaxPrivatePtr priv = calloc (1, sizeof (EETIeGalaxPrivateRec));
 
-    return Success;
+	if (!priv)
+		return BadAlloc;
+
+	priv->min_x = 0;
+	priv->max_x = 16383;	/* Max 14 bit resolution reported */
+	priv->min_y = 0;
+	priv->max_y = 16383;	/* ditto */
+
+	priv->button_number = 1;
+	priv->swap_xy = 0;
+	priv->invert_x = 0;
+	priv->invert_y = 0;
+
+	/* Initialise the InputInfoRec. */
+	pInfo->type_name = "EETIeGalax"; /* XI_TOUCHSCREEN */
+	pInfo->device_control = xf86EETIeGalaxDeviceControl; /* DeviceControl */
+	pInfo->read_input = xf86EETIeGalaxReadInput; /* ReadInput */
+	pInfo->control_proc = xf86EETIeGalaxControlProc; /* ControlProc */
+	pInfo->switch_mode = NULL;
+	pInfo->private = priv;
+
+	xf86OptionListReport(pInfo->options);
+
+	/* Options set below in xf86EETIeGalaxDefOpts are used */
+	pInfo->fd = xf86OpenSerial(pInfo->options);
+	if (pInfo->fd == -1) {
+		xf86Msg(X_ERROR, "%s: cannot open input device\n", pInfo->name);
+		return !Success;
+	}
+
+	xf86CloseSerial(pInfo->fd);
+	pInfo->fd = -1;
+
+	priv->button_number = xf86SetIntOption(pInfo->options, "ButtonNumber", 1);
+	priv->swap_xy = xf86SetIntOption(pInfo->options, "SwapXY", 0);
+	priv->invert_y = xf86SetIntOption(pInfo->options, "InvertY", 0);
+	priv->invert_x = xf86SetIntOption(pInfo->options, "InvertX", 0);
+
+	return Success;
 }
 
+static const char *xf86EETIeGalaxDefOpts[] = {
+	"Device",	"/dev/ttyS3",
+	"BaudRate",	"9600"
+	"DataBits",     "8",
+	"Parity",	"None",
+	"StopBits",	"1",
+	NULL
+};
+
 _X_EXPORT InputDriverRec EETI_EGALAX = {
-    1,				/* driver version */
-    "eeti_egalax",			/* driver name */
-    NULL,			/* identify */
-    xf86EETIeGalaxInit,		/* pre-init */
-    xf86EETIeGalaxUninit,		/* un-init */
-    NULL,			/* module */
+	1,			/* driver version */
+	"eeti_egalax",		/* driver name */
+	NULL,			/* identify */
+	xf86EETIeGalaxInit,	/* pre-init */
+	xf86EETIeGalaxUninit,	/* un-init */
+	NULL,			/* module */
+	xf86EETIeGalaxDefOpts,	/* default options */
+#ifdef XI86_DRV_CAP_SERVER_FD
+	XI86_DRV_CAP_SERVER_FD
+#endif
 };
 
 /*
@@ -239,7 +269,7 @@ _X_EXPORT InputDriverRec EETI_EGALAX = {
  * called when the module subsection is found in XF86Config
  */
 static void
-xf86EETIeGalaxUnplug(pointer	p)
+xf86EETIeGalaxUnplug(pointer p)
 {
 }
 
@@ -249,34 +279,29 @@ xf86EETIeGalaxUnplug(pointer	p)
  * called when the module subsection is found in XF86Config
  */
 static pointer
-xf86EETIeGalaxPlug(pointer	module,
-	    pointer	options,
-	    int		*errmaj,
-	    int		*errmin)
+xf86EETIeGalaxPlug(pointer module, pointer options, int *errmaj, int *errmin)
 {
-    xf86AddInputDriver(&EETI_EGALAX, module, 0);
-
-    return module;
+	xf86AddInputDriver(&EETI_EGALAX, module, 0);
+	return module;
 }
 
 static XF86ModuleVersionInfo xf86EETIeGalaxVersionRec =
 {
-    "eeti-egalax",
-    MODULEVENDORSTRING,
-    MODINFOSTRING1,
-    MODINFOSTRING2,
-    XORG_VERSION_CURRENT,
-    PACKAGE_VERSION_MAJOR, PACKAGE_VERSION_MINOR, PACKAGE_VERSION_PATCHLEVEL,
-    ABI_CLASS_XINPUT,
-    ABI_XINPUT_VERSION,
-    MOD_CLASS_XINPUT,
-    {0, 0, 0, 0}		/* signature, to be patched into the file by */
+	"eeti-egalax",
+	MODULEVENDORSTRING,
+	MODINFOSTRING1,
+	MODINFOSTRING2,
+	XORG_VERSION_CURRENT,
+	PACKAGE_VERSION_MAJOR, PACKAGE_VERSION_MINOR, PACKAGE_VERSION_PATCHLEVEL,
+	ABI_CLASS_XINPUT,
+	ABI_XINPUT_VERSION,
+	MOD_CLASS_XINPUT,
+	{0, 0, 0, 0}		/* signature, to be patched into the file by */
 				/* a tool */
 };
 
 _X_EXPORT XF86ModuleData eeti_egalaxModuleData = {
-    &xf86EETIeGalaxVersionRec,
-    xf86EETIeGalaxPlug,
-    xf86EETIeGalaxUnplug
+	&xf86EETIeGalaxVersionRec,
+	xf86EETIeGalaxPlug,
+	xf86EETIeGalaxUnplug
 };
-

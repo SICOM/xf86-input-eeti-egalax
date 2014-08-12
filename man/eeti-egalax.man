@@ -2,22 +2,20 @@
 .ds q \N'34'
 .TH VOID __drivermansuffix__ __vendorversion__
 .SH NAME
-void \- null input driver
+eeti-egalax \- EETI eGalax serial input driver
 .SH SYNOPSIS
 .nf
 .B "Section \*qInputDevice\*q"
 .BI "  Identifier \*q" idevname \*q
-.B  "  Driver \*qvoid\*q"
+.B  "  Driver \*qeeti-egalax\*q"
 \ \ ...
 .B EndSection
 .fi
 .SH DESCRIPTION
-.B void 
-is an dummy/null __xservername__ input driver.  It doesn't connect to any
-physical device, and it never delivers any events.  It functions as
-both a pointer and keyboard device, and may be used as X server's core
-pointer and/or core keyboard.  It's purpose is to allow X servers pre
-version 1.4 to operate without a core pointer and/or core keyboard.
+.B eeti-egalax 
+is an __xservername__ input driver for the serial attached variant
+of the EETI eGalax device. It functions as a pointer device and may
+be used as X server's core pointer.
 .SH CONFIGURATION DETAILS
 Please refer to __xconfigfile__(__filemansuffix__) for general configuration
 details and for options that can be used with all input drivers.  This
