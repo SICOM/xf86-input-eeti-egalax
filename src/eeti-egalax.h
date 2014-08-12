@@ -26,6 +26,8 @@
 #ifndef EETI_EGALAX_H
 #define EETI_EGALAX_H
 
+#define EETI_RESPONSE_SIZE	64
+
 typedef struct _EETIeGalaxPrivateRec
 {
 	int	min_x;		/* Minimum x reported by calibration	*/
@@ -37,6 +39,8 @@ typedef struct _EETIeGalaxPrivateRec
 	int	invert_y;	/* option "InvertY"			*/
 	int	invert_x;	/* option "InvertX"			*/
 	int	button_number;	/* option "ButtonNumber"		*/
+	int	packet_size;
+	unsigned char packet[EETI_RESPONSE_SIZE];
 } EETIeGalaxPrivateRec, *EETIeGalaxPrivatePtr;
 
 #endif
