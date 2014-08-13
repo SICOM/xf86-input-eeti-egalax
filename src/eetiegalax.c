@@ -407,7 +407,8 @@ xf86EETIeGalaxDeviceControl(DeviceIntPtr device, int what)
 	case DEVICE_OFF:
 	case DEVICE_CLOSE:
 		if (pInfo->fd != -1) {
-			RemoveEnabledDevice(pInfo->fd);
+			if (device->public.on == TRUE)
+				RemoveEnabledDevice(pInfo->fd);
 			xf86CloseSerial(pInfo->fd);
 			pInfo->fd = -1;
 		}
