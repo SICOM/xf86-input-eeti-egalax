@@ -1,0 +1,53 @@
+.\" shorthand for double quote that works everywhere.
+.ds q \N'34'
+.TH VOID __drivermansuffix__ __vendorversion__
+.SH NAME
+eeti-egalax \- EETI eGalax serial input driver
+.SH SYNOPSIS
+.nf
+.B "Section \*qInputDevice\*q"
+.BI "  Identifier \*q" devname \*q
+.B  "  Driver \*qeeti_egalax\*q"
+.B  "  Option \*qAutoServerLayout\*q \*qon\*q"
+\ \ ...
+.B EndSection
+.fi
+.SH DESCRIPTION
+.B eeti-egalax 
+is an __xservername__ input driver for the serial attached variant
+of the EETI eGalax device. It functions as a pointer device and may
+be used as X server's core pointer.
+.SH CONFIGURATION DETAILS
+Please refer to __xconfigfile__(__filemansuffix__) for general configuration
+details and for options that can be used with all input drivers.  This
+section only covers configuration details specific to this driver.
+.PP
+The following driver
+.B Options
+are supported:
+.TP 7
+.BI "Option \*qDevice\*q \*q" string \*q
+Specifies the device through which the device can be accessed.  This will
+generally be of the form \*q/dev/ttySX\*q, where X is some integer.
+Default: 
+.BI \*q/dev/ttyS3\*q
+Although this driver also responds to options that change the serial
+line properties, like 
+.BI "\*qBaudRate\*q"
+,
+.BI "\*qDataBits\*q"
+, 
+.BI "\*qParity\*q"
+and 
+.BI "\*qStopBits\*q"
+the default 9600 8N1 is what the device operates at, so don't change them.
+.TP 7
+.BI "Option \*qSwapAxes\*q \*q" Bool \*q
+Swap x/y axes. Default: off.
+.TP 7
+.BI "Option \*qInvertX\*q \*q" Bool \*q
+.TP 7
+.BI "Option \*qInvertY\*q \*q" Bool \*q
+Invert the given axis. Default: on for both X and Y.
+.SH "SEE ALSO"
+__xservername__(__appmansuffix__), __xconfigfile__(__filemansuffix__), Xserver(__appmansuffix__), X(__miscmansuffix__).

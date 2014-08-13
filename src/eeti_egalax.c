@@ -51,7 +51,7 @@
 #include <X11/Xatom.h>
 #include <xserver-properties.h>
 
-#include "eeti-egalax.h"
+#include "eeti_egalax.h"
 
 #define MAXBUTTONS 1
 
@@ -476,7 +476,7 @@ xf86EETIeGalaxInit(InputDriverPtr drv, InputInfoPtr pInfo, int flags)
 	pInfo->fd = -1;
 
 	priv->button_number = xf86SetIntOption(pInfo->options, "ButtonNumber", 1);
-	priv->swap_xy = xf86SetIntOption(pInfo->options, "SwapXY", 0);
+	priv->swap_xy = xf86SetIntOption(pInfo->options, "SwapAxes", 0);
 	priv->invert_y = xf86SetIntOption(pInfo->options, "InvertY", 1);
 	priv->invert_x = xf86SetIntOption(pInfo->options, "InvertX", 1);
 
@@ -489,7 +489,7 @@ static const char *xf86EETIeGalaxDefOpts[] = {
 	"DataBits",     "8",
 	"Parity",	"None",
 	"StopBits",	"1",
-	"SwapXY",	"0",
+	"SwapAxes",	"0",
 	"InvertX"	"1",
 	"InvertY",	"1",
 	NULL
