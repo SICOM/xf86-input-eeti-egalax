@@ -27,7 +27,7 @@ dnl Process this file with autoconf to produce a configure script
 # Initialize Autoconf
 AC_PREREQ([2.60])
 AC_INIT([xf86-input-eeti-egalax],
-        [0.0.2],
+        [0.0.3],
         [https://bugs.freedesktop.org/enter_bug.cgi?product=xorg],
         xf86-input-eeti-egalax)
 AC_CONFIG_SRCDIR([Makefile.am])
@@ -37,7 +37,7 @@ AC_CONFIG_HEADERS([config.h])
 # Initialize Automake
 AM_INIT_AUTOMAKE([foreign dist-bzip2])
 
-DRIVER_NAME=eeti_egalax
+DRIVER_NAME=eetiegalax
 AC_SUBST([DRIVER_NAME])
 
 # Require X.Org macros 1.8 or later for MAN_SUBSTS set by XORG_MANPAGE_SECTIONS

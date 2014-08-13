@@ -51,7 +51,7 @@
 #include <X11/Xatom.h>
 #include <xserver-properties.h>
 
-#include "eeti_egalax.h"
+#include "eetiegalax.h"
 
 #define MAXBUTTONS 1
 
@@ -495,9 +495,9 @@ static const char *xf86EETIeGalaxDefOpts[] = {
 	NULL
 };
 
-_X_EXPORT InputDriverRec EETI_EGALAX = {
+_X_EXPORT InputDriverRec EETIEGALAX = {
 	1,			/* driver version */
-	"eeti_egalax",		/* driver name */
+	"eetiegalax",		/* driver name */
 	NULL,			/* identify */
 	xf86EETIeGalaxInit,	/* pre-init */
 	xf86EETIeGalaxUninit,	/* un-init */
@@ -533,13 +533,13 @@ xf86EETIeGalaxUnplug(pointer p)
 static pointer
 xf86EETIeGalaxPlug(pointer module, pointer options, int *errmaj, int *errmin)
 {
-	xf86AddInputDriver(&EETI_EGALAX, module, 0);
+	xf86AddInputDriver(&EETIEGALAX, module, 0);
 	return module;
 }
 
 static XF86ModuleVersionInfo xf86EETIeGalaxVersionRec =
 {
-	"eeti-egalax",
+	"eetiegalax",
 	MODULEVENDORSTRING,
 	MODINFOSTRING1,
 	MODINFOSTRING2,
@@ -552,7 +552,7 @@ static XF86ModuleVersionInfo xf86EETIeGalaxVersionRec =
 				/* a tool */
 };
 
-_X_EXPORT XF86ModuleData eeti_egalaxModuleData = {
+_X_EXPORT XF86ModuleData eetiegalaxModuleData = {
 	&xf86EETIeGalaxVersionRec,
 	xf86EETIeGalaxPlug,
 	xf86EETIeGalaxUnplug
