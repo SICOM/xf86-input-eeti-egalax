@@ -485,7 +485,7 @@ xf86EETIeGalaxInit(InputDriverPtr drv, InputInfoPtr pInfo, int flags)
 
 static const char *xf86EETIeGalaxDefOpts[] = {
 	"Device",	"/dev/ttyS3",
-	"BaudRate",	"9600"
+	"BaudRate",	"9600",
 	"DataBits",     "8",
 	"Parity",	"None",
 	"StopBits",	"1",

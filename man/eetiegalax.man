@@ -2,12 +2,12 @@
 .ds q \N'34'
 .TH VOID __drivermansuffix__ __vendorversion__
 .SH NAME
-eeti-egalax \- EETI eGalax serial input driver
+eetiegalax \- EETI eGalax serial input driver
 .SH SYNOPSIS
 .nf
 .B "Section \*qInputDevice\*q"
 .BI "  Identifier \*q" devname \*q
-.B  "  Driver \*qeeti_egalax\*q"
+.B  "  Driver \*qeetiegalax\*q"
 .B  "  Option \*qAutoServerLayout\*q \*qon\*q"
 \ \ ...
 .B EndSection
