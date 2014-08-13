@@ -324,26 +324,26 @@ xf86EETIeGalaxDeviceControl(DeviceIntPtr device, int what)
 		/* Send the initial and info packets and check that we have the device we want */
 		if (xf86WriteSerial(pInfo->fd, eeti_alive, sizeof(eeti_alive)) != sizeof(eeti_alive)) {
 			ErrorF("%s: error sending initial packet to device\n", pInfo->name);
-			return !Success;
+			goto error_close_device;
 		}
 		switch (xf86WaitForInput(pInfo->fd, 200000) != 1) {
 		case 0:
 			ErrorF("%s: timeout waiting for input from device\n", pInfo->name);
-			return !Success;
+			goto error_close_device;
 		case 1:
 			if (xf86EETIeGalaxReadPacket(pInfo->fd, priv) != Success) {
 				ErrorF("%s: error reading input packet\n", pInfo->name);
-				return !Success;
+				goto error_close_device;
 			}
 			if (priv->packet_size == sizeof(eeti_alive) && memcmp(priv->packet, eeti_alive, sizeof(eeti_alive)) == 0) {
 				xf86Msg(X_INFO, "%s: EETI eGalax serial device detected\n", pInfo->name);
 				break;
 			}
 			ErrorF("%s: bad response from device, not an EETI eGalax serial device\n", pInfo->name);
-			return !Success;
+			goto error_close_device;
 		default:
 			ErrorF("%s: error waiting for input from device\n", pInfo->name);
-			return !Success;
+			goto error_close_device;
 		}
 		if (xf86EETIeGalaxReadPacket(pInfo->fd, priv) != Success) {
 			ErrorF("%s: error reading input packet\n", pInfo->name);
@@ -351,16 +351,16 @@ xf86EETIeGalaxDeviceControl(DeviceIntPtr device, int what)
 
 		if (xf86WriteSerial(pInfo->fd, eeti_fwver, sizeof(eeti_fwver)) != sizeof(eeti_fwver)) {
 			ErrorF("%s: error sending firmware query packet to device\n", pInfo->name);
-			return !Success;
+			goto error_close_device;
 		}
 		switch (xf86WaitForInput(pInfo->fd, 200000) != 1) {
 		case 0:
 			ErrorF("%s: timeout waiting for input from device\n", pInfo->name);
-			return !Success;
+			goto error_close_device;
 		case 1:
 			if (xf86EETIeGalaxReadPacket(pInfo->fd, priv) != Success) {
 				ErrorF("%s: error reading input packet\n", pInfo->name);
-				return !Success;
+				goto error_close_device;
 			}
 			if (priv->packet_size >= sizeof(eeti_fwver) && memcmp(priv->packet, eeti_fwver, sizeof(eeti_fwver)) == 0) {
 				priv->packet[2 + priv->packet[1]] = '\0';
@@ -368,24 +368,24 @@ xf86EETIeGalaxDeviceControl(DeviceIntPtr device, int what)
 				break;
 			}
 			ErrorF("%s: bad response from device, not an EETI eGalax serial device\n", pInfo->name);
-			return !Success;
+			goto error_close_device;
 		default:
 			ErrorF("%s: error waiting for input from device\n", pInfo->name);
-			return !Success;
+			goto error_close_device;
 		}
 
 		if (xf86WriteSerial(pInfo->fd, eeti_ctrlr, sizeof(eeti_ctrlr)) != sizeof(eeti_ctrlr)) {
 			ErrorF("%s: error sending controller type query packet to device\n", pInfo->name);
-			return !Success;
+			goto error_close_device;
 		}
 		switch (xf86WaitForInput(pInfo->fd, 200000) != 1) {
 		case 0:
 			ErrorF("%s: timeout waiting for input from device\n", pInfo->name);
-			return !Success;
+			goto error_close_device;
 		case 1:
 			if (xf86EETIeGalaxReadPacket(pInfo->fd, priv) != Success) {
 				ErrorF("%s: error reading input packet\n", pInfo->name);
-				return !Success;
+				goto error_close_device;
 			}
 			if (priv->packet_size >= sizeof(eeti_ctrlr) && memcmp(priv->packet, eeti_ctrlr, sizeof(eeti_ctrlr)) == 0) {
 				priv->packet[2 + priv->packet[1]] = '\0';
@@ -393,10 +393,10 @@ xf86EETIeGalaxDeviceControl(DeviceIntPtr device, int what)
 				break;
 			}
 			ErrorF("%s: bad response from device, not an EETI eGalax serial device\n", pInfo->name);
-			return !Success;
+			goto error_close_device;
 		default:
 			ErrorF("%s: error waiting for input from device\n", pInfo->name);
-			return !Success;
+			goto error_close_device;
 		}
 
 		xf86FlushInput(pInfo->fd);
@@ -419,6 +419,14 @@ xf86EETIeGalaxDeviceControl(DeviceIntPtr device, int what)
 		return BadValue;
 	}
 	return Success;
+
+error_close_device:
+	if (pInfo->fd != -1) {
+		xf86CloseSerial(pInfo->fd);
+		pInfo->fd = -1;
+	}
+
+	return !Success;
 }
 
 /*
@@ -484,7 +492,7 @@ xf86EETIeGalaxInit(InputDriverPtr drv, InputInfoPtr pInfo, int flags)
 }
 
 static const char *xf86EETIeGalaxDefOpts[] = {
-	"Device",	"/dev/ttyS3",
+/*	"Device",	"/dev/ttyS3",	*/
 	"BaudRate",	"9600",
 	"DataBits",     "8",
 	"Parity",	"None",

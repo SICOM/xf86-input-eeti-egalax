@@ -9,6 +9,7 @@ eetiegalax \- EETI eGalax serial input driver
 .BI "  Identifier \*q" devname \*q
 .B  "  Driver \*qeetiegalax\*q"
 .B  "  Option \*qAutoServerLayout\*q \*qon\*q"
+.B  "  Option \*qDevice\*q \*q/dev/ttySx\*q"
 \ \ ...
 .B EndSection
 .fi
@@ -28,9 +29,7 @@ are supported:
 .TP 7
 .BI "Option \*qDevice\*q \*q" string \*q
 Specifies the device through which the device can be accessed.  This will
-generally be of the form \*q/dev/ttySX\*q, where X is some integer.
-Default: 
-.BI \*q/dev/ttyS3\*q
+generally be of the form \*q/dev/ttySx\*q, where x is some integer.
 Although this driver also responds to options that change the serial
 line properties, like 
 .BI "\*qBaudRate\*q"
