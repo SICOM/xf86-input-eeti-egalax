@@ -424,14 +424,14 @@ eetiegalaxDeviceControl(DeviceIntPtr device, int what)
 
 		if (eetiegalaxReadPacket(pInfo->fd, priv) != Success) {
 			ErrorF("%s: error reading input packet\n", pInfo->name);
-			goto error_close_device;
-		}
-		if (priv->packet_size >= sizeof(eeti_fwver) && memcmp(priv->packet, eeti_fwver, sizeof(eeti_fwver)) == 0) {
-			priv->packet[2 + priv->packet[1]] = '\0';
-			xf86Msg(X_INFO, "%s: EETI eGalax firmware version: %s\n", pInfo->name, &priv->packet[3]);
 		} else {
-			ErrorF("%s: bad response from device, not an EETI eGalax serial device\n", pInfo->name);
-			goto error_close_device;
+			if (priv->packet_size >= sizeof(eeti_fwver) && memcmp(priv->packet, eeti_fwver, sizeof(eeti_fwver)) == 0) {
+				priv->packet[2 + priv->packet[1]] = '\0';
+				xf86Msg(X_INFO, "%s: EETI eGalax firmware version: %s\n", pInfo->name, &priv->packet[3]);
+			} else {
+				ErrorF("%s: bad response from device, not an EETI eGalax serial device\n", pInfo->name);
+				goto error_close_device;
+			}
 		}
 
 		/* Query the controller type */
