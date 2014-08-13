@@ -51,6 +51,13 @@
 #include <X11/Xatom.h>
 #include <xserver-properties.h>
 
+#include <errno.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <termios.h>
+
 #include "eetiegalax.h"
 
 #define MAXBUTTONS 1
@@ -62,6 +69,81 @@
  * Function/Macro keys variables
  *****************************************************************************/
 
+static int
+openSerialDevice(InputInfoPtr pInfo) {
+	const char *devname = xf86SetStrOption(pInfo->options, "Device", NULL);
+	int fd;
+	struct termios tio;
+
+	if (!devname) {
+		xf86Msg(X_ERROR, "openSerialDevice: No Device specified.\n");
+		return -1;
+	}
+
+	fd = open(devname, O_RDWR | O_NOCTTY | O_NONBLOCK | O_EXCL);
+	if (fd < 0)
+		return -1;
+
+	tcgetattr(fd, &tio);
+	cfmakeraw(&tio);
+	cfsetospeed(&tio, B9600);
+	cfsetispeed(&tio, B9600);
+
+	tcsetattr(fd, TCSANOW, &tio);
+
+	return fd;
+}
+
+static int
+get_bytes(int fd, unsigned char *buf, int n) {
+	int pos = 0;
+	int err = 0;
+	int waitret;
+	struct timeval tv;
+	fd_set set;
+
+	FD_ZERO(&set);
+	FD_SET(fd, &set);
+	tv.tv_sec = 0;
+	tv.tv_usec = 50000;
+	waitret = select(fd+1, &set, NULL, NULL, &tv);
+	if (waitret <= 0)
+		return waitret;
+
+	while (n) {
+	again:
+		FD_ZERO(&set);
+		FD_SET(fd, &set);
+		tv.tv_sec = 0;
+		tv.tv_usec = 10000;
+		waitret = select(fd+1, &set, NULL, NULL, &tv);
+		if (waitret <= 0)
+			return waitret;
+		err = read(fd, &buf[pos++], 1);
+		if (err == 0) {
+			/*
+			 * select() says we have bytes
+			 * but read() returned 0. It might have been
+			 * cut by some signal, we have to retry read().
+			 */
+			goto again;
+		}
+		if (err == -1)
+			break;
+		n--;
+	}
+	if (err == -1)
+		return errno;
+	else
+		return pos;
+}
+
+static void
+flush_serial(int fd)
+{
+	usleep(200000);
+	tcflush(fd, TCIOFLUSH);
+}
 
 static void
 PointerControlProc(DeviceIntPtr dev, PtrCtrl *ctrl)
@@ -69,25 +151,36 @@ PointerControlProc(DeviceIntPtr dev, PtrCtrl *ctrl)
 	return;
 }
 
-static int
-xf86EETIeGalaxReadPacket(int fd, EETIeGalaxPrivatePtr priv)
+static int eetiegalaxReadPacketRest(int fd, EETIeGalaxPrivatePtr priv)
 {
 	unsigned char *buf = priv->packet;
 
-	priv->packet_size = 0;
-
-	if (xf86ReadSerial(fd, buf, 2) != 2)
+	if (get_bytes(fd, buf + 2, buf[1]) != buf[1]) {
+		flush_serial(fd);
 		return !Success;
-
-	if (xf86ReadSerial(fd, buf + 2, buf[1]) != buf[1])
-		return !Success;
+	}
 
 	priv->packet_size = buf[1] + 2;
 	return Success;
 }
 
+static int
+eetiegalaxReadPacket(int fd, EETIeGalaxPrivatePtr priv)
+{
+	unsigned char *buf = priv->packet;
+
+	priv->packet_size = 0;
+
+	if (get_bytes(fd, buf, 2) != 2) {
+		flush_serial(fd);
+		return !Success;
+	}
+
+	return eetiegalaxReadPacketRest(fd, priv);
+}
+
 static void
-xf86EETIeGalaxReadInput(InputInfoPtr pInfo)
+eetiegalaxReadInput(InputInfoPtr pInfo)
 {
 	EETIeGalaxPrivatePtr priv = (EETIeGalaxPrivatePtr)(pInfo->private);
 	unsigned char *buf = priv->packet;
@@ -107,50 +200,39 @@ xf86EETIeGalaxReadInput(InputInfoPtr pInfo)
 	priv->packet_size = 0;
 
 	/*
-	 * Read the 1st byte of the stream and decide what we have
+	 * Read the first two bytes of the stream and decide what we have
 	 */
-	if (xf86ReadSerial(pInfo->fd, buf, 1) != 1)
+	if (get_bytes(pInfo->fd, buf, 2) != 2) {
+		flush_serial(pInfo->fd);
 		return;
+	}
 
-	switch (buf[0]) {
-	case 0x0a:
+	if (buf[0] == 0x0a && buf[1] == 10) {
 		/* Multitouch packet? */
-		switch (xf86WaitForInput(pInfo->fd, 200000) != 1) {
-		case 0:
-			//ErrorF("%s: timeout waiting for input from device (multitouch packet)\n", pInfo->name);
-			xf86FlushInput(pInfo->fd);
-			return;
-		case 1:
-			/* Read the length byte */
-			if (xf86ReadSerial(pInfo->fd, &buf[1], 1) != 1) {
-				xf86FlushInput(pInfo->fd);
-				return;
-			}
-			/* Read the rest of the packet */
-			if (xf86ReadSerial(pInfo->fd, &buf[2], buf[1]) != buf[1]) {
-				xf86FlushInput(pInfo->fd);
-				return;
-			}
-
+		if (eetiegalaxReadPacketRest(pInfo->fd, priv) == Success) {
 			/* Ignore the multitouch packet for now... */
-
-			break;
-		default:
-			//ErrorF("%s: error waiting for input from device (multitouch packet)\n", pInfo->name);
-			break;
 		}
-		break;
-	default:
-		/* The first byte should have bit 7 set */
-		if (buf[0] & 0x80 != 0x80) {
-			xf86FlushInput(pInfo->fd);
-			return;
-		}
-
+	} else if (((buf[0] & 0x80) == 0x80) && ((buf[0] & 0x80) == 0x00)) {
+		/*
+		 * The packat is 5 or 6 bytes in total, two of those were
+		 * already read above. The first byte has bit 7 set,
+		 * all others has bit 7 unset. The above check in this if ()
+		 * branch is the most we can do at that point.
+		 */
 		has_pressure = (buf[0] & 0x40);
 		has_player = (buf[0] & 0x20);
-		rest_length = ((has_pressure || has_player) ? 5 : 4);
+		rest_length = ((has_pressure || has_player) ? 4 : 3);
 
+		if (get_bytes(pInfo->fd, buf, rest_length) != rest_length) {
+			flush_serial(pInfo->fd);
+			return;
+		}
+
+		/*
+		 * Detect resolution: 14, 13, 12 or 11 bits.
+		 * Treat the value as always 14 bits and shift left with the
+		 * proper number of bits if needed.
+		 */
 		switch (buf[0] & 0x06) {
 		case 0x00:
 			mask = 0x07ff;
@@ -172,11 +254,6 @@ xf86EETIeGalaxReadInput(InputInfoPtr pInfo)
 		}
 
 		pressed = buf[0] & 0x01;
-
-		if (xf86ReadSerial(pInfo->fd, &buf[1], rest_length) != rest_length) {
-			xf86FlushInput(pInfo->fd);
-			return;
-		}
 
 		hi_byte = ((int)buf[1]) << 7;
 		lo_byte = ((int)buf[2]) & 0x7f;
@@ -226,13 +303,12 @@ xf86EETIeGalaxReadInput(InputInfoPtr pInfo)
 			xf86PostButtonEvent (pInfo->dev, TRUE, priv->button_number, 0, 0, 2, x, y);
 			priv->button_down = FALSE;
 		}
-
-		break;
-	}
+	} else
+		flush_serial(pInfo->fd);
 }
 
 static int
-xf86EETIeGalaxControlProc(InputInfoPtr pInfo, xDeviceCtl * control)
+eetiegalaxControlProc(InputInfoPtr pInfo, xDeviceCtl * control)
 {
 	xDeviceAbsCalibCtl *c = (xDeviceAbsCalibCtl *)control;
 	EETIeGalaxPrivatePtr priv = (EETIeGalaxPrivatePtr)(pInfo->private);
@@ -246,12 +322,12 @@ xf86EETIeGalaxControlProc(InputInfoPtr pInfo, xDeviceCtl * control)
 }
 
 /*
- * xf86EETIeGalaxControlProc --
+ * eetiegalaxControlProc --
  *
  * called to change the state of a device.
  */
 static int
-xf86EETIeGalaxDeviceControl(DeviceIntPtr device, int what)
+eetiegalaxDeviceControl(DeviceIntPtr device, int what)
 {
 	InputInfoPtr pInfo = device->public.devicePrivate;
 	EETIeGalaxPrivatePtr priv = (EETIeGalaxPrivatePtr)(pInfo->private);
@@ -315,87 +391,65 @@ xf86EETIeGalaxDeviceControl(DeviceIntPtr device, int what)
 		break;
 
 	case DEVICE_ON:
-		pInfo->fd = xf86OpenSerial(pInfo->options);
+		pInfo->fd = openSerialDevice(pInfo);
 		if (pInfo->fd == -1) {
 			ErrorF("%s: cannot open input device\n", pInfo->name);
 			return !Success;
 		}
 
-		/* Send the initial and info packets and check that we have the device we want */
-		if (xf86WriteSerial(pInfo->fd, eeti_alive, sizeof(eeti_alive)) != sizeof(eeti_alive)) {
+		/* Send the initial packet and check that we have the device we want */
+		if (write(pInfo->fd, eeti_alive, sizeof(eeti_alive)) != sizeof(eeti_alive)) {
 			ErrorF("%s: error sending initial packet to device\n", pInfo->name);
 			goto error_close_device;
 		}
-		switch (xf86WaitForInput(pInfo->fd, 200000) != 1) {
-		case 0:
-			ErrorF("%s: timeout waiting for input from device\n", pInfo->name);
-			goto error_close_device;
-		case 1:
-			if (xf86EETIeGalaxReadPacket(pInfo->fd, priv) != Success) {
-				ErrorF("%s: error reading input packet\n", pInfo->name);
-				goto error_close_device;
-			}
-			if (priv->packet_size == sizeof(eeti_alive) && memcmp(priv->packet, eeti_alive, sizeof(eeti_alive)) == 0) {
-				xf86Msg(X_INFO, "%s: EETI eGalax serial device detected\n", pInfo->name);
-				break;
-			}
-			ErrorF("%s: bad response from device, not an EETI eGalax serial device\n", pInfo->name);
-			goto error_close_device;
-		default:
-			ErrorF("%s: error waiting for input from device\n", pInfo->name);
+		tcdrain(pInfo->fd);
+
+		if (eetiegalaxReadPacket(pInfo->fd, priv) != Success) {
+			ErrorF("%s: error reading input packet\n", pInfo->name);
 			goto error_close_device;
 		}
-		if (xf86EETIeGalaxReadPacket(pInfo->fd, priv) != Success) {
-			ErrorF("%s: error reading input packet\n", pInfo->name);
+		if (priv->packet_size == sizeof(eeti_alive) && memcmp(priv->packet, eeti_alive, sizeof(eeti_alive)) == 0) {
+			xf86Msg(X_INFO, "%s: EETI eGalax serial device detected\n", pInfo->name);
+		} else {
+			xf86Msg(X_ERROR, "%s: bad response from device, not an EETI eGalax serial device\n", pInfo->name);
+			goto error_close_device;
 		}
 
-		if (xf86WriteSerial(pInfo->fd, eeti_fwver, sizeof(eeti_fwver)) != sizeof(eeti_fwver)) {
+		/* Query the firmware version */
+		if (write(pInfo->fd, eeti_fwver, sizeof(eeti_fwver)) != sizeof(eeti_fwver)) {
 			ErrorF("%s: error sending firmware query packet to device\n", pInfo->name);
 			goto error_close_device;
 		}
-		switch (xf86WaitForInput(pInfo->fd, 200000) != 1) {
-		case 0:
-			ErrorF("%s: timeout waiting for input from device\n", pInfo->name);
+		tcdrain(pInfo->fd);
+
+		if (eetiegalaxReadPacket(pInfo->fd, priv) != Success) {
+			ErrorF("%s: error reading input packet\n", pInfo->name);
 			goto error_close_device;
-		case 1:
-			if (xf86EETIeGalaxReadPacket(pInfo->fd, priv) != Success) {
-				ErrorF("%s: error reading input packet\n", pInfo->name);
-				goto error_close_device;
-			}
-			if (priv->packet_size >= sizeof(eeti_fwver) && memcmp(priv->packet, eeti_fwver, sizeof(eeti_fwver)) == 0) {
-				priv->packet[2 + priv->packet[1]] = '\0';
-				xf86Msg(X_INFO, "%s: EETI eGalax firmware version: %s\n", pInfo->name, &priv->packet[3]);
-				break;
-			}
+		}
+		if (priv->packet_size >= sizeof(eeti_fwver) && memcmp(priv->packet, eeti_fwver, sizeof(eeti_fwver)) == 0) {
+			priv->packet[2 + priv->packet[1]] = '\0';
+			xf86Msg(X_INFO, "%s: EETI eGalax firmware version: %s\n", pInfo->name, &priv->packet[3]);
+		} else {
 			ErrorF("%s: bad response from device, not an EETI eGalax serial device\n", pInfo->name);
-			goto error_close_device;
-		default:
-			ErrorF("%s: error waiting for input from device\n", pInfo->name);
 			goto error_close_device;
 		}
 
-		if (xf86WriteSerial(pInfo->fd, eeti_ctrlr, sizeof(eeti_ctrlr)) != sizeof(eeti_ctrlr)) {
+		/* Query the controller type */
+		if (write(pInfo->fd, eeti_ctrlr, sizeof(eeti_ctrlr)) != sizeof(eeti_ctrlr)) {
 			ErrorF("%s: error sending controller type query packet to device\n", pInfo->name);
 			goto error_close_device;
 		}
-		switch (xf86WaitForInput(pInfo->fd, 200000) != 1) {
-		case 0:
-			ErrorF("%s: timeout waiting for input from device\n", pInfo->name);
+		tcdrain(pInfo->fd);
+
+		if (eetiegalaxReadPacket(pInfo->fd, priv) != Success) {
+			ErrorF("%s: error reading input packet\n", pInfo->name);
 			goto error_close_device;
-		case 1:
-			if (xf86EETIeGalaxReadPacket(pInfo->fd, priv) != Success) {
-				ErrorF("%s: error reading input packet\n", pInfo->name);
-				goto error_close_device;
-			}
-			if (priv->packet_size >= sizeof(eeti_ctrlr) && memcmp(priv->packet, eeti_ctrlr, sizeof(eeti_ctrlr)) == 0) {
-				priv->packet[2 + priv->packet[1]] = '\0';
-				xf86Msg(X_INFO, "%s: EETI eGalax controller type: %s\n", pInfo->name, &priv->packet[3]);
-				break;
-			}
+		}
+		if (priv->packet_size >= sizeof(eeti_ctrlr) && memcmp(priv->packet, eeti_ctrlr, sizeof(eeti_ctrlr)) == 0) {
+			priv->packet[2 + priv->packet[1]] = '\0';
+			xf86Msg(X_INFO, "%s: EETI eGalax controller type: %s\n", pInfo->name, &priv->packet[3]);
+		} else {
 			ErrorF("%s: bad response from device, not an EETI eGalax serial device\n", pInfo->name);
-			goto error_close_device;
-		default:
-			ErrorF("%s: error waiting for input from device\n", pInfo->name);
 			goto error_close_device;
 		}
 
@@ -431,23 +485,23 @@ error_close_device:
 }
 
 /*
- * xf86EETIeGalaxUninit --
+ * eetiegalaxUninit --
  *
  * called when the driver is unloaded.
  */
 static void
-xf86EETIeGalaxUninit(InputDriverPtr drv, InputInfoPtr pInfo, int flags)
+eetiegalaxUninit(InputDriverPtr drv, InputInfoPtr pInfo, int flags)
 {
-	xf86EETIeGalaxDeviceControl(pInfo->dev, DEVICE_OFF);
+	eetiegalaxDeviceControl(pInfo->dev, DEVICE_OFF);
 }
 
 /*
- * xf86EETIeGalaxInit --
+ * eetiegalaxInit --
  *
  * called when the module subsection is found in XF86Config
  */
 static int
-xf86EETIeGalaxInit(InputDriverPtr drv, InputInfoPtr pInfo, int flags)
+eetiegalaxInit(InputDriverPtr drv, InputInfoPtr pInfo, int flags)
 {
 	EETIeGalaxPrivatePtr priv = calloc (1, sizeof (EETIeGalaxPrivateRec));
 
@@ -466,16 +520,16 @@ xf86EETIeGalaxInit(InputDriverPtr drv, InputInfoPtr pInfo, int flags)
 
 	/* Initialise the InputInfoRec. */
 	pInfo->type_name = "EETIeGalax"; /* XI_TOUCHSCREEN */
-	pInfo->device_control = xf86EETIeGalaxDeviceControl; /* DeviceControl */
-	pInfo->read_input = xf86EETIeGalaxReadInput; /* ReadInput */
-	pInfo->control_proc = xf86EETIeGalaxControlProc; /* ControlProc */
+	pInfo->device_control = eetiegalaxDeviceControl; /* DeviceControl */
+	pInfo->read_input = eetiegalaxReadInput; /* ReadInput */
+	pInfo->control_proc = eetiegalaxControlProc; /* ControlProc */
 	pInfo->switch_mode = NULL;
 	pInfo->private = priv;
 
 	xf86OptionListReport(pInfo->options);
 
-	/* Options set below in xf86EETIeGalaxDefOpts are used */
-	pInfo->fd = xf86OpenSerial(pInfo->options);
+	/* Options set below in eetiegalaxDefOpts are used */
+	pInfo->fd = openSerialDevice(pInfo);
 	if (pInfo->fd == -1) {
 		xf86Msg(X_ERROR, "%s: cannot open input device\n", pInfo->name);
 		return !Success;
@@ -492,12 +546,8 @@ xf86EETIeGalaxInit(InputDriverPtr drv, InputInfoPtr pInfo, int flags)
 	return Success;
 }
 
-static const char *xf86EETIeGalaxDefOpts[] = {
+static const char *eetiegalaxDefOpts[] = {
 /*	"Device",	"/dev/ttyS3",	*/
-	"BaudRate",	"9600",
-	"DataBits",     "8",
-	"Parity",	"None",
-	"StopBits",	"1",
 	"SwapAxes",	"0",
 	"InvertX"	"1",
 	"InvertY",	"1",
@@ -508,10 +558,10 @@ _X_EXPORT InputDriverRec EETIEGALAX = {
 	1,			/* driver version */
 	"eetiegalax",		/* driver name */
 	NULL,			/* identify */
-	xf86EETIeGalaxInit,	/* pre-init */
-	xf86EETIeGalaxUninit,	/* un-init */
+	eetiegalaxInit,	/* pre-init */
+	eetiegalaxUninit,	/* un-init */
 	NULL,			/* module */
-	xf86EETIeGalaxDefOpts,	/* default options */
+	eetiegalaxDefOpts,	/* default options */
 #ifdef XI86_DRV_CAP_SERVER_FD
 	XI86_DRV_CAP_SERVER_FD
 #endif
@@ -525,28 +575,28 @@ _X_EXPORT InputDriverRec EETIEGALAX = {
  ***************************************************************************
  */
 /*
- * xf86EETIeGalaxUnplug --
+ * eetiegalaxUnplug --
  *
  * called when the module subsection is found in XF86Config
  */
 static void
-xf86EETIeGalaxUnplug(pointer p)
+eetiegalaxUnplug(pointer p)
 {
 }
 
 /*
- * xf86EETIeGalaxPlug --
+ * eetiegalaxPlug --
  *
  * called when the module subsection is found in XF86Config
  */
 static pointer
-xf86EETIeGalaxPlug(pointer module, pointer options, int *errmaj, int *errmin)
+eetiegalaxPlug(pointer module, pointer options, int *errmaj, int *errmin)
 {
 	xf86AddInputDriver(&EETIEGALAX, module, 0);
 	return module;
 }
 
-static XF86ModuleVersionInfo xf86EETIeGalaxVersionRec =
+static XF86ModuleVersionInfo eetiegalaxVersionRec =
 {
 	"eetiegalax",
 	MODULEVENDORSTRING,
@@ -562,7 +612,7 @@ static XF86ModuleVersionInfo xf86EETIeGalaxVersionRec =
 };
 
 _X_EXPORT XF86ModuleData eetiegalaxModuleData = {
-	&xf86EETIeGalaxVersionRec,
-	xf86EETIeGalaxPlug,
-	xf86EETIeGalaxUnplug
+	&eetiegalaxVersionRec,
+	eetiegalaxPlug,
+	eetiegalaxUnplug
 };

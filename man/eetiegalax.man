@@ -30,16 +30,6 @@ are supported:
 .BI "Option \*qDevice\*q \*q" string \*q
 Specifies the device through which the device can be accessed.  This will
 generally be of the form \*q/dev/ttySx\*q, where x is some integer.
-Although this driver also responds to options that change the serial
-line properties, like 
-.BI "\*qBaudRate\*q"
-,
-.BI "\*qDataBits\*q"
-, 
-.BI "\*qParity\*q"
-and 
-.BI "\*qStopBits\*q"
-the default 9600 8N1 is what the device operates at, so don't change them.
 .TP 7
 .BI "Option \*qSwapAxes\*q \*q" Bool \*q
 Swap x/y axes. Default: off.
@@ -48,5 +38,8 @@ Swap x/y axes. Default: off.
 .TP 7
 .BI "Option \*qInvertY\*q \*q" Bool \*q
 Invert the given axis. Default: on for both X and Y.
+.TP 7
+.BI "Option \*qButtonNumber\*q \*q" integer \*q
+Specifies the button number the touchscreen sends when pressed. Default: 1
 .SH "SEE ALSO"
 __xservername__(__appmansuffix__), __xconfigfile__(__filemansuffix__), Xserver(__appmansuffix__), X(__miscmansuffix__).
