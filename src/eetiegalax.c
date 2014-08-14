@@ -184,7 +184,7 @@ eetiegalaxReadPacket(InputInfoPtr pInfo)
 	rest_length = buf[1] - 1;
 
 	if (rest_length > 0) {
-		len = get_bytes(pInfo, &buf[1], rest_length);
+		len = get_bytes(pInfo, &buf[3], rest_length);
 		if (len != rest_length) {
 			xf86Msg(X_WARNING, "%s: Truncated packet from EETI device, flushing line\n", pInfo->name);
 			flush_serial(pInfo->fd);
