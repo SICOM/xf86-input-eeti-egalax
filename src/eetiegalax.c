@@ -119,17 +119,15 @@ get_bytes(InputInfoPtr pInfo, unsigned char *buf, int n) {
 		waitret = select(pInfo->fd + 1, &set, NULL, NULL, &tv);
 		if (waitret <= 0)
 			return waitret;
-		err = read(pInfo->fd, &buf[pos++], 1);
-		if (err == 0) {
-			/*
-			 * select() says we have bytes
-			 * but read() returned 0. It might have been
-			 * cut by some signal, we have to retry read().
-			 */
+		err = read(pInfo->fd, &buf[pos], 1);
+		if (err == 0)
 			goto again;
-		}
-		if (err == -1)
+		if (err == -1) {
+			if (errno == EAGAIN)
+				goto again;
 			break;
+		}
+		pos++;
 		n--;
 	}
 #if 1
@@ -168,34 +166,35 @@ eetiegalaxReadPacket(InputInfoPtr pInfo)
 {
 	EETIeGalaxPrivatePtr priv = (EETIeGalaxPrivatePtr)(pInfo->private);
 	unsigned char *buf = priv->packet;
-	int len, resp_len;
+	int len, rest_length;
 
-	len = get_bytes(pInfo, buf, 1);
-	if (len != 1) {
-		xf86Msg(X_INFO, "%s: No response from EETI device, flushing line\n", pInfo->name);
+	/* Read the packet's first 3 bytes */
+	len = get_bytes(pInfo, buf, 3);
+	if (len != 3) {
+		xf86Msg(X_INFO, "%s: No response or partial packet from EETI device, flushing line\n", pInfo->name);
 		flush_serial(pInfo->fd);
-		return 0;
+		return !Success;
 	}
 	if (buf[0] != 0x0a) {
 		xf86Msg(X_WARNING, "%s: Invalid response: initial byte %02d, flushing line\n", pInfo->name, buf[0]);
 		flush_serial(pInfo->fd);
-		return 0;
+		return !Success;
 	}
-	len = get_bytes(pInfo, &buf[1], 1);
-	if (len != 1) {
-		xf86Msg(X_WARNING, "%s: No length byte in packet from EETI device, flushing line\n", pInfo->name);
-		flush_serial(pInfo->fd);
-		return 0;
+
+	rest_length = buf[1] - 1;
+
+	if (rest_length > 0) {
+		len = get_bytes(pInfo, &buf[1], rest_length);
+		if (len != rest_length) {
+			xf86Msg(X_WARNING, "%s: Truncated packet from EETI device, flushing line\n", pInfo->name);
+			flush_serial(pInfo->fd);
+			return 0;
+		}
 	}
-	resp_len = buf[1];
-	len = get_bytes(pInfo, &buf[2], buf[1]);
-	if (len != resp_len) {
-		xf86Msg(X_WARNING, "%s: Truncated packet from EETI device, flushing line\n", pInfo->name);
-		flush_serial(pInfo->fd);
-		return len;
-	}
-	priv->packet_size = len + 2;
-	return len + 2;
+
+	priv->packet_size = rest_length + 3;
+
+	return Success;
 }
 
 static void
@@ -364,7 +363,7 @@ eetiegalaxSendCheckResponse(InputInfoPtr pInfo, const unsigned char *eeti_packet
 		ErrorF("%s: error reading response packet\n", pInfo->name);
 		return !Success;
 	}
-	if (priv->packet_size >= size && priv->packet[0] == eeti_packet[0] && priv->packet[2] == eeti_packet[2])
+	if ((priv->packet_size >= size) && (priv->packet[0] == eeti_packet[0]) && (priv->packet[2] == eeti_packet[2]))
 		return Success;
 
 	xf86Msg(X_ERROR, "%s: bad response from device, not an EETI eGalax serial device\n", pInfo->name);
@@ -394,8 +393,10 @@ eetiegalaxDeviceControl(DeviceIntPtr device, int what)
 	axes_labels[1] = XIGetKnownProperty(AXIS_LABEL_PROP_ABS_Y);
 
 	btn_labels[0] = XIGetKnownProperty(BTN_LABEL_PROP_BTN_LEFT);
+#if 0 /* Only one button is supported, don't corrupt memory */
 	btn_labels[1] = XIGetKnownProperty(BTN_LABEL_PROP_BTN_MIDDLE);
 	btn_labels[2] = XIGetKnownProperty(BTN_LABEL_PROP_BTN_RIGHT);
+#endif
 
 	switch (what)
 	{
