@@ -130,7 +130,7 @@ get_bytes(InputInfoPtr pInfo, unsigned char *buf, int n) {
 		pos++;
 		n--;
 	}
-#if 1
+#if 0
 	{
 		char *debug_line = malloc(5 * pos + 1);
 		int i;
@@ -307,7 +307,9 @@ eetiegalaxReadInput(InputInfoPtr pInfo)
 		if (priv->invert_y)
 			y = 0x3fff - y;
 
+#if 0
 		xf86Msg(X_INFO, "%s: x: % 5d y: % 5d button %s\n", pInfo->name, x, y, (pressed ? "DOWN" : "UP"));
+#endif
 
 		/*
 		 * Send events.
@@ -363,8 +365,10 @@ eetiegalaxSendCheckResponse(InputInfoPtr pInfo, const unsigned char *eeti_packet
 		ErrorF("%s: error reading response packet\n", pInfo->name);
 		return !Success;
 	}
+#if 0
 	xf86Msg(X_INFO, "%s: packet_size %d (should be at least %d) 1st char '%c' (expected '%c') 3rd char '%c' (expected '%c')\n",
 			pInfo->name, priv->packet_size, size, priv->packet[0], eeti_packet[0], priv->packet[2], eeti_packet[2]);
+#endif
 	if ((priv->packet_size >= size) && (priv->packet[0] == eeti_packet[0]) && (priv->packet[2] == eeti_packet[2]))
 		return Success;
 
@@ -421,8 +425,8 @@ eetiegalaxDeviceControl(DeviceIntPtr device, int what)
 		InitValuatorAxisStruct(device,
 							0,
 							axes_labels[0],
-							0, /* min val */
-							16383, /* max val */
+							priv->min_x, /* min val */
+							priv->max_x, /* max val */
 							1, /* resolution */
 							0, /* min_res */
 							1, /* max_res */
@@ -430,8 +434,8 @@ eetiegalaxDeviceControl(DeviceIntPtr device, int what)
 		InitValuatorAxisStruct(device,
 							1,
 							axes_labels[1],
-							0, /* min val */
-							16383, /* max val */
+							priv->min_y, /* min val */
+							priv->max_y, /* max val */
 							1, /* resolution */
 							0, /* min_res */
 							1, /* max_res */
@@ -558,6 +562,10 @@ eetiegalaxInit(InputDriverPtr drv, InputInfoPtr pInfo, int flags)
 	priv->swap_xy = xf86SetBoolOption(pInfo->options, "SwapAxes", 0);
 	priv->invert_y = xf86SetBoolOption(pInfo->options, "InvertY", 0);
 	priv->invert_x = xf86SetBoolOption(pInfo->options, "InvertX", 0);
+	priv->min_x = xf86SetIntOption(pInfo->options, "CalXMin", 0);
+	priv->max_x = xf86SetIntOption(pInfo->options, "CalXMax", 16383);
+	priv->min_y = xf86SetIntOption(pInfo->options, "CalYMin", 0);
+	priv->max_y = xf86SetIntOption(pInfo->options, "CalYMax", 16383);
 
 	return Success;
 }
@@ -566,6 +574,10 @@ static const char *eetiegalaxDefOpts[] = {
 	"SwapAxes",	"0",
 	"InvertX"	"0",
 	"InvertY",	"0",
+	"CalXMin",	"0",
+	"CalXMax",	"16383",
+	"CalYMin",	"0",
+	"CalYMax",	"16383",
 	NULL
 };
 
