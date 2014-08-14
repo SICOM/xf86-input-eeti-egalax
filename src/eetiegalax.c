@@ -95,7 +95,7 @@ openSerialDevice(InputInfoPtr pInfo) {
 }
 
 static int
-get_bytes(int fd, unsigned char *buf, int n) {
+get_bytes(InputInfoPtr pInfo, unsigned char *buf, int n) {
 	int pos = 0;
 	int err = 0;
 	int waitret;
@@ -103,23 +103,23 @@ get_bytes(int fd, unsigned char *buf, int n) {
 	fd_set set;
 
 	FD_ZERO(&set);
-	FD_SET(fd, &set);
+	FD_SET(pInfo->fd, &set);
 	tv.tv_sec = 0;
 	tv.tv_usec = 50000;
-	waitret = select(fd+1, &set, NULL, NULL, &tv);
+	waitret = select(pInfo->fd + 1, &set, NULL, NULL, &tv);
 	if (waitret <= 0)
 		return waitret;
 
 	while (n) {
 	again:
 		FD_ZERO(&set);
-		FD_SET(fd, &set);
+		FD_SET(pInfo->fd, &set);
 		tv.tv_sec = 0;
 		tv.tv_usec = 25000;
-		waitret = select(fd + 1, &set, NULL, NULL, &tv);
+		waitret = select(pInfo->fd + 1, &set, NULL, NULL, &tv);
 		if (waitret <= 0)
 			return waitret;
-		err = read(fd, &buf[pos++], 1);
+		err = read(pInfo->fd, &buf[pos++], 1);
 		if (err == 0) {
 			/*
 			 * select() says we have bytes
@@ -132,8 +132,20 @@ get_bytes(int fd, unsigned char *buf, int n) {
 			break;
 		n--;
 	}
+#if 1
+	{
+		char *debug_line = malloc(5 * pos + 1);
+		int i;
+
+		for (i = 0; i < pos; i++)
+			sprintf(debug_line + 5*i, "0x%02x ", buf[i]);
+		debug_line[5*pos] = '\0';
+		xf86Msg(X_INFO, "%s: get_bytes read: %s\n", pInfo->name, debug_line);
+		free(debug_line);
+	}
+#endif
 	if (err == -1)
-		return errno;
+		return -1;
 	else
 		return pos;
 }
@@ -151,12 +163,13 @@ PointerControlProc(DeviceIntPtr dev, PtrCtrl *ctrl)
 	return;
 }
 
-static int eetiegalaxReadPacketRest(int fd, EETIeGalaxPrivatePtr priv)
+static int eetiegalaxReadPacketRest(InputInfoPtr pInfo)
 {
+	EETIeGalaxPrivatePtr priv = (EETIeGalaxPrivatePtr)(pInfo->private);
 	unsigned char *buf = priv->packet;
 
-	if (get_bytes(fd, buf + 2, buf[1]) != buf[1]) {
-		flush_serial(fd);
+	if (get_bytes(pInfo, buf + 2, buf[1]) != buf[1]) {
+		flush_serial(pInfo->fd);
 		return !Success;
 	}
 
@@ -164,52 +177,55 @@ static int eetiegalaxReadPacketRest(int fd, EETIeGalaxPrivatePtr priv)
 	return Success;
 }
 
-static int read_eeti_response(int fd, unsigned char *buf) {
+static int read_eeti_response(InputInfoPtr pInfo) {
+	EETIeGalaxPrivatePtr priv = (EETIeGalaxPrivatePtr)(pInfo->private);
+	unsigned char *buf = priv->packet;
 	int len, resp_len;
 
-	len = get_bytes(fd, buf, 1);
+	len = get_bytes(pInfo, buf, 1);
 	if (len != 1) {
-		xf86Msg(X_INFO, "No response from EETI device, flushing line\n");
-		flush_serial(fd);
+		xf86Msg(X_INFO, "%s: No response from EETI device, flushing line\n", pInfo->name);
+		flush_serial(pInfo->fd);
 		return 0;
 	}
 	if (buf[0] != 0x0a) {
-		xf86Msg(X_WARNING, "Invalid response: initial byte %02d, flushing line\n", buf[0]);
-		flush_serial(fd);
+		xf86Msg(X_WARNING, "%s: Invalid response: initial byte %02d, flushing line\n", pInfo->name, buf[0]);
+		flush_serial(pInfo->fd);
 		return 0;
 	}
-	len = get_bytes(fd, &buf[1], 1);
+	len = get_bytes(pInfo, &buf[1], 1);
 	if (len != 1) {
-		xf86Msg(X_WARNING, "No length byte in packet from EETI device, flushing line\n");
-		flush_serial(fd);
+		xf86Msg(X_WARNING, "%s: No length byte in packet from EETI device, flushing line\n", pInfo->name);
+		flush_serial(pInfo->fd);
 		return 0;
 	}
 	resp_len = buf[1];
-	len = get_bytes(fd, &buf[2], resp_len);
+	len = get_bytes(pInfo, &buf[2], buf[1]);
 	if (len != resp_len) {
-		xf86Msg(X_WARNING, "Truncated packet from EETI device, flushing line\n");
-		flush_serial(fd);
+		xf86Msg(X_WARNING, "%s: Truncated packet from EETI device, flushing line\n", pInfo->name);
+		flush_serial(pInfo->fd);
 		return len;
 	}
 	return len + 2;
 }
 
 static int
-eetiegalaxReadPacket(int fd, EETIeGalaxPrivatePtr priv)
+eetiegalaxReadPacket(InputInfoPtr pInfo)
 {
-#if 0
+	EETIeGalaxPrivatePtr priv = (EETIeGalaxPrivatePtr)(pInfo->private);
 	unsigned char *buf = priv->packet;
+#if 0
 
 	priv->packet_size = 0;
 
-	if (get_bytes(fd, buf, 2) != 2) {
-		flush_serial(fd);
+	if (get_bytes(pInfo->fd, buf, 2) != 2) {
+		flush_serial(pInfo->fd);
 		return !Success;
 	}
 
-	return eetiegalaxReadPacketRest(fd, priv);
+	return eetiegalaxReadPacketRest(pInfo->fd, priv);
 #else
-	return (read_eeti_response(fd, priv->packet) > 0 ? Success : !Success);
+	return (read_eeti_response(pInfo) > 0 ? Success : !Success);
 #endif
 }
 
@@ -236,14 +252,14 @@ eetiegalaxReadInput(InputInfoPtr pInfo)
 	/*
 	 * Read the first two bytes of the stream and decide what we have
 	 */
-	if (get_bytes(pInfo->fd, buf, 2) != 2) {
+	if (get_bytes(pInfo, buf, 2) != 2) {
 		flush_serial(pInfo->fd);
 		return;
 	}
 
 	if (buf[0] == 0x0a && buf[1] == 10) {
 		/* Multitouch packet? */
-		if (eetiegalaxReadPacketRest(pInfo->fd, priv) == Success) {
+		if (eetiegalaxReadPacketRest(pInfo) == Success) {
 			/* Ignore the multitouch packet for now... */
 		}
 	} else if (((buf[0] & 0x80) == 0x80) && ((buf[0] & 0x80) == 0x00)) {
@@ -257,7 +273,7 @@ eetiegalaxReadInput(InputInfoPtr pInfo)
 		has_player = (buf[0] & 0x20);
 		rest_length = ((has_pressure || has_player) ? 4 : 3);
 
-		if (get_bytes(pInfo->fd, buf, rest_length) != rest_length) {
+		if (get_bytes(pInfo, &buf[2], rest_length) != rest_length) {
 			flush_serial(pInfo->fd);
 			return;
 		}
@@ -438,7 +454,7 @@ eetiegalaxDeviceControl(DeviceIntPtr device, int what)
 		}
 		tcdrain(pInfo->fd);
 
-		if (eetiegalaxReadPacket(pInfo->fd, priv) != Success) {
+		if (eetiegalaxReadPacket(pInfo) != Success) {
 			ErrorF("%s: error reading input packet\n", pInfo->name);
 			goto error_close_device;
 		}
@@ -456,7 +472,7 @@ eetiegalaxDeviceControl(DeviceIntPtr device, int what)
 		}
 		tcdrain(pInfo->fd);
 
-		if (eetiegalaxReadPacket(pInfo->fd, priv) != Success) {
+		if (eetiegalaxReadPacket(pInfo) != Success) {
 			xf86Msg(X_WARNING, "%s: reading input packet failed\n", pInfo->name);
 		} else {
 			if (priv->packet_size >= sizeof(eeti_fwver) && memcmp(priv->packet, eeti_fwver, sizeof(eeti_fwver)) == 0) {
@@ -475,7 +491,7 @@ eetiegalaxDeviceControl(DeviceIntPtr device, int what)
 		}
 		tcdrain(pInfo->fd);
 
-		if (eetiegalaxReadPacket(pInfo->fd, priv) != Success) {
+		if (eetiegalaxReadPacket(pInfo) != Success) {
 			ErrorF("%s: error reading input packet\n", pInfo->name);
 			goto error_close_device;
 		}
