@@ -115,8 +115,8 @@ get_bytes(int fd, unsigned char *buf, int n) {
 		FD_ZERO(&set);
 		FD_SET(fd, &set);
 		tv.tv_sec = 0;
-		tv.tv_usec = 10000;
-		waitret = select(fd+1, &set, NULL, NULL, &tv);
+		tv.tv_usec = 25000;
+		waitret = select(fd + 1, &set, NULL, NULL, &tv);
 		if (waitret <= 0)
 			return waitret;
 		err = read(fd, &buf[pos++], 1);
@@ -164,9 +164,40 @@ static int eetiegalaxReadPacketRest(int fd, EETIeGalaxPrivatePtr priv)
 	return Success;
 }
 
+static int read_eeti_response(int fd, unsigned char *buf) {
+	int len, resp_len;
+
+	len = get_bytes(fd, buf, 1);
+	if (len != 1) {
+		xf86Msg(X_INFO, "No response from EETI device, flushing line\n");
+		flush_serial(fd);
+		return 0;
+	}
+	if (buf[0] != 0x0a) {
+		xf86Msg(X_WARNING, "Invalid response: initial byte %02d, flushing line\n", buf[0]);
+		flush_serial(fd);
+		return 0;
+	}
+	len = get_bytes(fd, &buf[1], 1);
+	if (len != 1) {
+		xf86Msg(X_WARNING, "No length byte in packet from EETI device, flushing line\n");
+		flush_serial(fd);
+		return 0;
+	}
+	resp_len = buf[1];
+	len = get_bytes(fd, &buf[2], resp_len);
+	if (len != resp_len) {
+		xf86Msg(X_WARNING, "Truncated packet from EETI device, flushing line\n");
+		flush_serial(fd);
+		return len;
+	}
+	return len;
+}
+
 static int
 eetiegalaxReadPacket(int fd, EETIeGalaxPrivatePtr priv)
 {
+#if 0
 	unsigned char *buf = priv->packet;
 
 	priv->packet_size = 0;
@@ -177,6 +208,9 @@ eetiegalaxReadPacket(int fd, EETIeGalaxPrivatePtr priv)
 	}
 
 	return eetiegalaxReadPacketRest(fd, priv);
+#else
+	return (read_eeti_response(fd, priv->packet) > 0 ? Success : !Success);
+#endif
 }
 
 static void
@@ -423,7 +457,7 @@ eetiegalaxDeviceControl(DeviceIntPtr device, int what)
 		tcdrain(pInfo->fd);
 
 		if (eetiegalaxReadPacket(pInfo->fd, priv) != Success) {
-			ErrorF("%s: error reading input packet\n", pInfo->name);
+			xf86Msg(X_WARNING, "%s: reading input packet failed\n", pInfo->name);
 		} else {
 			if (priv->packet_size >= sizeof(eeti_fwver) && memcmp(priv->packet, eeti_fwver, sizeof(eeti_fwver)) == 0) {
 				priv->packet[2 + priv->packet[1]] = '\0';
