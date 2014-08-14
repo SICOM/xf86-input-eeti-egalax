@@ -556,17 +556,16 @@ eetiegalaxInit(InputDriverPtr drv, InputInfoPtr pInfo, int flags)
 
 	priv->button_number = xf86SetIntOption(pInfo->options, "ButtonNumber", 1);
 	priv->swap_xy = xf86SetIntOption(pInfo->options, "SwapAxes", 0);
-	priv->invert_y = xf86SetIntOption(pInfo->options, "InvertY", 1);
-	priv->invert_x = xf86SetIntOption(pInfo->options, "InvertX", 1);
+	priv->invert_y = xf86SetIntOption(pInfo->options, "InvertY", 0);
+	priv->invert_x = xf86SetIntOption(pInfo->options, "InvertX", 0);
 
 	return Success;
 }
 
 static const char *eetiegalaxDefOpts[] = {
-/*	"Device",	"/dev/ttyS3",	*/
 	"SwapAxes",	"0",
-	"InvertX"	"1",
-	"InvertY",	"1",
+	"InvertX"	"0",
+	"InvertY",	"0",
 	NULL
 };
 
