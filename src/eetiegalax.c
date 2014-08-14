@@ -138,8 +138,8 @@ get_bytes(InputInfoPtr pInfo, unsigned char *buf, int n) {
 		int i;
 
 		for (i = 0; i < pos; i++)
-			sprintf(debug_line + 5*i, "0x%02x ", buf[i]);
-		debug_line[5*pos] = '\0';
+			sprintf(debug_line + 5 * i, "0x%02x ", buf[i]);
+		debug_line[5 * pos] = '\0';
 		xf86Msg(X_INFO, "%s: get_bytes read: %s\n", pInfo->name, debug_line);
 		free(debug_line);
 	}
@@ -206,6 +206,7 @@ static int read_eeti_response(InputInfoPtr pInfo) {
 		flush_serial(pInfo->fd);
 		return len;
 	}
+	priv->packet_size = len + 2;
 	return len + 2;
 }
 
