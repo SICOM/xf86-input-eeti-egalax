@@ -372,6 +372,29 @@ eetiegalaxControlProc(InputInfoPtr pInfo, xDeviceCtl * control)
 	return Success;
 }
 
+static int
+eetiegalaxSendCheckResponse(InputInfoPtr pInfo, const unsigned char *eeti_packet, const int size)
+{
+	EETIeGalaxPrivatePtr priv = (EETIeGalaxPrivatePtr)(pInfo->private);
+
+	/* Send the initial packet and check that we have the device we want */
+	if (write(pInfo->fd, eeti_packet, size) != size) {
+		ErrorF("%s: error sending packet to device\n", pInfo->name);
+		return !Success;
+	}
+	tcdrain(pInfo->fd);
+
+	if (eetiegalaxReadPacket(pInfo) != Success) {
+		ErrorF("%s: error reading response packet\n", pInfo->name);
+		return !Success;
+	}
+	if (priv->packet_size >= size && priv->packet[0] == eeti_packet[0] && priv->packet[2] == eeti_packet[2])
+		return Success;
+
+	xf86Msg(X_ERROR, "%s: bad response from device, not an EETI eGalax serial device\n", pInfo->name);
+	return !Success;
+}
+
 /*
  * eetiegalaxControlProc --
  *
@@ -448,61 +471,22 @@ eetiegalaxDeviceControl(DeviceIntPtr device, int what)
 			return !Success;
 		}
 
-		/* Send the initial packet and check that we have the device we want */
-		if (write(pInfo->fd, eeti_alive, sizeof(eeti_alive)) != sizeof(eeti_alive)) {
-			ErrorF("%s: error sending initial packet to device\n", pInfo->name);
-			goto error_close_device;
-		}
-		tcdrain(pInfo->fd);
-
-		if (eetiegalaxReadPacket(pInfo) != Success) {
-			ErrorF("%s: error reading input packet\n", pInfo->name);
-			goto error_close_device;
-		}
-		if (priv->packet_size == sizeof(eeti_alive) && memcmp(priv->packet, eeti_alive, sizeof(eeti_alive)) == 0) {
+		if (eetiegalaxSendCheckResponse(pInfo, eeti_alive, sizeof(eeti_alive)) == Success)
 			xf86Msg(X_INFO, "%s: EETI eGalax serial device detected\n", pInfo->name);
-		} else {
-			xf86Msg(X_ERROR, "%s: bad response from device, not an EETI eGalax serial device\n", pInfo->name);
+		else
 			goto error_close_device;
-		}
 
-		/* Query the firmware version */
-		if (write(pInfo->fd, eeti_fwver, sizeof(eeti_fwver)) != sizeof(eeti_fwver)) {
-			ErrorF("%s: error sending firmware query packet to device\n", pInfo->name);
+		if (eetiegalaxSendCheckResponse(pInfo, eeti_fwver, sizeof(eeti_fwver)) == Success) {
+			priv->packet[priv->packet_size] = '\0';
+			xf86Msg(X_INFO, "%s: EETI eGalax firmware version: %s\n", pInfo->name, &priv->packet[3]);
+		} else
 			goto error_close_device;
-		}
-		tcdrain(pInfo->fd);
 
-		if (eetiegalaxReadPacket(pInfo) != Success) {
-			xf86Msg(X_WARNING, "%s: reading input packet failed\n", pInfo->name);
-		} else {
-			if (priv->packet_size >= sizeof(eeti_fwver) && memcmp(priv->packet, eeti_fwver, sizeof(eeti_fwver)) == 0) {
-				priv->packet[2 + priv->packet[1]] = '\0';
-				xf86Msg(X_INFO, "%s: EETI eGalax firmware version: %s\n", pInfo->name, &priv->packet[3]);
-			} else {
-				ErrorF("%s: bad response from device, not an EETI eGalax serial device\n", pInfo->name);
-				goto error_close_device;
-			}
-		}
-
-		/* Query the controller type */
-		if (write(pInfo->fd, eeti_ctrlr, sizeof(eeti_ctrlr)) != sizeof(eeti_ctrlr)) {
-			ErrorF("%s: error sending controller type query packet to device\n", pInfo->name);
-			goto error_close_device;
-		}
-		tcdrain(pInfo->fd);
-
-		if (eetiegalaxReadPacket(pInfo) != Success) {
-			ErrorF("%s: error reading input packet\n", pInfo->name);
-			goto error_close_device;
-		}
-		if (priv->packet_size >= sizeof(eeti_ctrlr) && memcmp(priv->packet, eeti_ctrlr, sizeof(eeti_ctrlr)) == 0) {
-			priv->packet[2 + priv->packet[1]] = '\0';
+		if (eetiegalaxSendCheckResponse(pInfo, eeti_ctrlr, sizeof(eeti_ctrlr)) == Success) {
+			priv->packet[priv->packet_size] = '\0';
 			xf86Msg(X_INFO, "%s: EETI eGalax controller type: %s\n", pInfo->name, &priv->packet[3]);
-		} else {
-			ErrorF("%s: bad response from device, not an EETI eGalax serial device\n", pInfo->name);
+		} else
 			goto error_close_device;
-		}
 
 		xf86FlushInput(pInfo->fd);
 		AddEnabledDevice(pInfo->fd);
