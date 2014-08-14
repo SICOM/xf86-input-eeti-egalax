@@ -163,21 +163,9 @@ PointerControlProc(DeviceIntPtr dev, PtrCtrl *ctrl)
 	return;
 }
 
-static int eetiegalaxReadPacketRest(InputInfoPtr pInfo)
+static int
+eetiegalaxReadPacket(InputInfoPtr pInfo)
 {
-	EETIeGalaxPrivatePtr priv = (EETIeGalaxPrivatePtr)(pInfo->private);
-	unsigned char *buf = priv->packet;
-
-	if (get_bytes(pInfo, buf + 2, buf[1]) != buf[1]) {
-		flush_serial(pInfo->fd);
-		return !Success;
-	}
-
-	priv->packet_size = buf[1] + 2;
-	return Success;
-}
-
-static int read_eeti_response(InputInfoPtr pInfo) {
 	EETIeGalaxPrivatePtr priv = (EETIeGalaxPrivatePtr)(pInfo->private);
 	unsigned char *buf = priv->packet;
 	int len, resp_len;
@@ -210,26 +198,6 @@ static int read_eeti_response(InputInfoPtr pInfo) {
 	return len + 2;
 }
 
-static int
-eetiegalaxReadPacket(InputInfoPtr pInfo)
-{
-	EETIeGalaxPrivatePtr priv = (EETIeGalaxPrivatePtr)(pInfo->private);
-	unsigned char *buf = priv->packet;
-#if 0
-
-	priv->packet_size = 0;
-
-	if (get_bytes(pInfo->fd, buf, 2) != 2) {
-		flush_serial(pInfo->fd);
-		return !Success;
-	}
-
-	return eetiegalaxReadPacketRest(pInfo->fd, priv);
-#else
-	return (read_eeti_response(pInfo) > 0 ? Success : !Success);
-#endif
-}
-
 static void
 eetiegalaxReadInput(InputInfoPtr pInfo)
 {
@@ -251,30 +219,36 @@ eetiegalaxReadInput(InputInfoPtr pInfo)
 	priv->packet_size = 0;
 
 	/*
-	 * Read the first two bytes of the stream and decide what we have
+	 * Read the first three bytes of the stream and decide what we have
 	 */
-	if (get_bytes(pInfo, buf, 2) != 2) {
+	if (get_bytes(pInfo, buf, 3) != 3) {
 		flush_serial(pInfo->fd);
 		return;
 	}
 
-	if (buf[0] == 0x0a && buf[1] == 10) {
+	if (buf[0] == 0x0a && buf[2] == '4') {
+		rest_length = buf[1] - 1;
+
 		/* Multitouch packet? */
-		if (eetiegalaxReadPacketRest(pInfo) == Success) {
-			/* Ignore the multitouch packet for now... */
+		if (rest_length > 0 && get_bytes(pInfo, &buf[3], rest_length) != rest_length) {
+			flush_serial(pInfo->fd);
+			return;
 		}
-	} else if (((buf[0] & 0x80) == 0x80) && ((buf[0] & 0x80) == 0x00)) {
+		priv->packet_size = buf[1] + 2;
+
+		/* Ignore the multitouch packet for now... */
+	} else if (((buf[0] & 0x80) == 0x80) && ((buf[1] & 0x80) == 0x00) && ((buf[2] & 0x80) == 0x00)) {
 		/*
-		 * The packat is 5 or 6 bytes in total, two of those were
+		 * The packat is 5 or 6 bytes in total, three of those were
 		 * already read above. The first byte has bit 7 set,
 		 * all others has bit 7 unset. The above check in this if ()
 		 * branch is the most we can do at that point.
 		 */
 		has_pressure = (buf[0] & 0x40);
 		has_player = (buf[0] & 0x20);
-		rest_length = ((has_pressure || has_player) ? 4 : 3);
+		rest_length = ((has_pressure || has_player) ? 3 : 2);
 
-		if (get_bytes(pInfo, &buf[2], rest_length) != rest_length) {
+		if (get_bytes(pInfo, &buf[3], rest_length) != rest_length) {
 			flush_serial(pInfo->fd);
 			return;
 		}
@@ -333,6 +307,8 @@ eetiegalaxReadInput(InputInfoPtr pInfo)
 			x = 0x3fff - x;
 		if (priv->invert_y)
 			y = 0x3fff - y;
+
+		xf86Msg(X_INFO, "%s: x: % 5d y: % 5d button %s\n", pInfo->name, x, y, (pressed ? "DOWN" : "UP"));
 
 		/*
 		 * Send events.
