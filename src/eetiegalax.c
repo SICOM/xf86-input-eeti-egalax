@@ -191,7 +191,7 @@ static int read_eeti_response(int fd, unsigned char *buf) {
 		flush_serial(fd);
 		return len;
 	}
-	return len;
+	return len + 2;
 }
 
 static int
@@ -596,8 +596,10 @@ _X_EXPORT InputDriverRec EETIEGALAX = {
 	eetiegalaxUninit,	/* un-init */
 	NULL,			/* module */
 	eetiegalaxDefOpts,	/* default options */
+#if 0
 #ifdef XI86_DRV_CAP_SERVER_FD
 	XI86_DRV_CAP_SERVER_FD
+#endif
 #endif
 };
 
