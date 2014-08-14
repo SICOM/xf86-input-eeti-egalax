@@ -363,6 +363,8 @@ eetiegalaxSendCheckResponse(InputInfoPtr pInfo, const unsigned char *eeti_packet
 		ErrorF("%s: error reading response packet\n", pInfo->name);
 		return !Success;
 	}
+	xf86Msg(X_INFO, "%s: packet_size %d (should be at least %d) 1st char '%c' (expected '%c') 3rd char '%c' (expected '%c')\n",
+			pInfo->name, priv->packet_size, size, priv->packet[0], eeti_packet[0], priv->packet[2], eeti_packet[2]);
 	if ((priv->packet_size >= size) && (priv->packet[0] == eeti_packet[0]) && (priv->packet[2] == eeti_packet[2]))
 		return Success;
 
