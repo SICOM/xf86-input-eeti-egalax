@@ -32,14 +32,23 @@ Specifies the device through which the device can be accessed.  This will
 generally be of the form \*q/dev/ttySx\*q, where x is some integer.
 .TP 7
 .BI "Option \*qSwapAxes\*q \*q" Bool \*q
-Swap x/y axes. Default: off.
+Swap x/y axes.
 .TP 7
 .BI "Option \*qInvertX\*q \*q" Bool \*q
 .TP 7
 .BI "Option \*qInvertY\*q \*q" Bool \*q
-Invert the given axis. Default: on for both X and Y.
+Invert the given axis.
 .TP 7
 .BI "Option \*qButtonNumber\*q \*q" integer \*q
 Specifies the button number the touchscreen sends when pressed. Default: 1
+.TP 7
+.BI "Option \*qCalXMin\*q \*q" integer \*q
+.TP 7
+.BI "Option \*qCalXMax\*q \*q" integer \*q
+.TP 7
+.BI "Option \*qCalYMin\*q \*q" integer \*q
+.TP 7
+.BI "Option \*qCalYMax\*q \*q" integer \*q
+Specifies the calibration data for the touchscreen
 .SH "SEE ALSO"
 __xservername__(__appmansuffix__), __xconfigfile__(__filemansuffix__), Xserver(__appmansuffix__), X(__miscmansuffix__).

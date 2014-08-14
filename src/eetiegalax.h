@@ -35,6 +35,7 @@ typedef struct _EETIeGalaxPrivateRec
 	int	min_y;		/* Minimum y reported by calibration	*/
 	int	max_y;		/* Maximum y				*/
 	Bool	button_down;	/* is the "button" currently down	*/
+	Bool	proximity;	/* ??					*/
 	int	swap_xy;	/* option "SwapXY"			*/
 	int	invert_y;	/* option "InvertY"			*/
 	int	invert_x;	/* option "InvertX"			*/

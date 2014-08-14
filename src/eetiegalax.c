@@ -311,6 +311,11 @@ eetiegalaxReadInput(InputInfoPtr pInfo)
 		xf86Msg(X_INFO, "%s: x: % 5d y: % 5d button %s\n", pInfo->name, x, y, (pressed ? "DOWN" : "UP"));
 #endif
 
+		if ((priv->proximity == FALSE) && pressed) {
+			priv->proximity = TRUE;
+			xf86PostProximityEvent(pInfo->dev, 1, 0, 2, x, y);
+		}
+
 		/*
 		 * Send events.
 		 *
@@ -330,6 +335,14 @@ eetiegalaxReadInput(InputInfoPtr pInfo)
 		if ((priv->button_down == TRUE) && !pressed) {
 			xf86PostButtonEvent (pInfo->dev, TRUE, priv->button_number, 0, 0, 2, x, y);
 			priv->button_down = FALSE;
+		}
+
+		/*
+		 * the untouch should always come after the button release
+		 */
+		if ((priv->proximity == TRUE) && !pressed) {
+			priv->proximity = FALSE;
+			xf86PostProximityEvent (pInfo->dev, 0, 0, 2, x, y);
 		}
 	} else
 		flush_serial(pInfo->fd);
@@ -443,6 +456,11 @@ eetiegalaxDeviceControl(DeviceIntPtr device, int what)
 		/* allocate the motion history buffer if needed */
 		xf86MotionHistoryAllocate(pInfo);
 
+		if (InitProximityClassDeviceStruct(device) == FALSE) {
+			ErrorF ("unable to allocate proximity class device\n");
+			return !Success;
+		}
+
 		if (InitPtrFeedbackClassDeviceStruct(device, PointerControlProc) == FALSE) {
 			ErrorF("unable to init pointer feedback class device\n");
 			return !Success;
@@ -533,6 +551,7 @@ eetiegalaxInit(InputDriverPtr drv, InputInfoPtr pInfo, int flags)
 	priv->min_y = 0;
 	priv->max_y = 16383;	/* ditto */
 	priv->button_down = FALSE;
+	priv->proximity = FALSE;
 	priv->button_number = 1;
 	priv->swap_xy = 0;
 	priv->invert_x = 0;
