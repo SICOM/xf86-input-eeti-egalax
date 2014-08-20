@@ -453,7 +453,7 @@ eetiegalaxSetProperty(DeviceIntPtr device, Atom atom, XIPropertyValuePtr value, 
 		if (value->format != 8 || value->type != XA_INTEGER || value->size != 1)
 			return BadMatch;
 		if (!checkonly) {
-			int *swap_xy = value->data;
+			BOOL *swap_xy = value->data;
 
 			priv->swap_xy = *swap_xy;
 			xf86Msg(X_INFO, "%s: SwapXY set to %d\n", pInfo->name, priv->swap_xy);
