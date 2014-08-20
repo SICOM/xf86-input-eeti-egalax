@@ -44,4 +44,18 @@ typedef struct _EETIeGalaxPrivateRec
 	unsigned char packet[EETI_RESPONSE_SIZE];
 } EETIeGalaxPrivateRec, *EETIeGalaxPrivatePtr;
 
+/* Below labels are copied from xf86-input-evdev: */
+
+/* Axis inversion */
+/* BOOL, 2 values [x, y], 1 inverts axis */
+#define EVDEV_PROP_INVERT_AXES "Evdev Axis Inversion"
+
+/* Run-time calibration */
+/* CARD32, 4 values [minx, maxx, miny, maxy], or no values for unset */
+#define EVDEV_PROP_CALIBRATION "Evdev Axis Calibration"
+
+/* Swap x and y axis. */
+/* BOOL */
+#define EVDEV_PROP_SWAP_AXES "Evdev Axes Swap"
+
 #endif

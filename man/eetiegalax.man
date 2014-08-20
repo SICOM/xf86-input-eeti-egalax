@@ -31,24 +31,43 @@ are supported:
 Specifies the device through which the device can be accessed.  This will
 generally be of the form \*q/dev/ttySx\*q, where x is some integer.
 .TP 7
-.BI "Option \*qSwapAxes\*q \*q" Bool \*q
-Swap x/y axes.
+.BI "Option \*qSwapXY\*q \*q" Bool \*q
+Swap x/y axes. Property: "Evdev Axes Swap".
 .TP 7
 .BI "Option \*qInvertX\*q \*q" Bool \*q
 .TP 7
 .BI "Option \*qInvertY\*q \*q" Bool \*q
-Invert the given axis.
+Invert the given axis. Property: "Evdev Axis Inversion".
 .TP 7
 .BI "Option \*qButtonNumber\*q \*q" integer \*q
 Specifies the button number the touchscreen sends when pressed. Default: 1
 .TP 7
-.BI "Option \*qCalXMin\*q \*q" integer \*q
+.BI "Option \*qMinX\*q \*q" integer \*q
 .TP 7
-.BI "Option \*qCalXMax\*q \*q" integer \*q
+.BI "Option \*qMaxX\*q \*q" integer \*q
 .TP 7
-.BI "Option \*qCalYMin\*q \*q" integer \*q
+.BI "Option \*qMinY\*q \*q" integer \*q
 .TP 7
-.BI "Option \*qCalYMax\*q \*q" integer \*q
-Specifies the calibration data for the touchscreen
+.BI "Option \*qMaxY\*q \*q" integer \*q
+Specifies the calibration data for the touchscreen. Property: "Evdev Axis Calibration".
+.SH SUPPORTED PROPERTIES
+The following properties are provided by the
+.B eetiegalax
+driver. The property names intentionally follow those found in the
+.B evdev
+driver so
+.B xinput_calibrator
+picks them up automagically.
+.TP 7
+.BI "Evdev Axis Calibration"
+4 32-bit values, order min-x, max-x, min-y, max-y or 0 values to disable
+in-driver axis calibration.
+.TP 7
+.BI "Evdev Axis Inversion"
+2 boolean values (8 bit, 0 or 1), order X, Y. 1 inverts the axis.
+.TP 7
+.BI "Evdev Axes Swap"
+1 boolean value (8 bit, 0 or 1). 1 swaps x/y axes.
+.TP 7
 .SH "SEE ALSO"
 __xservername__(__appmansuffix__), __xconfigfile__(__filemansuffix__), Xserver(__appmansuffix__), X(__miscmansuffix__).

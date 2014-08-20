@@ -60,11 +60,18 @@
 
 #include "eetiegalax.h"
 
-#define MAXBUTTONS 1
+#define MAXBUTTONS 3
 
 #if GET_ABI_MAJOR(ABI_XINPUT_VERSION) < 12
 #error "XINPUT ABI 12 required."
 #endif
+
+static Atom prop_invert;
+static Atom prop_calibration;
+static Atom prop_swap;
+static Atom prop_axis_label;
+static Atom prop_btn_label;
+
 /******************************************************************************
  * Function/Macro keys variables
  *****************************************************************************/
@@ -211,8 +218,8 @@ eetiegalaxReadInput(InputInfoPtr pInfo)
 	int lo_byte;
 	int dir1;
 	int dir2;
-	int x;
-	int y;
+	int invert_x, x, min_x, max_x;
+	int invert_y, y, min_y, max_y;
 	int pressed;
 
 	priv->packet_size = 0;
@@ -302,13 +309,48 @@ eetiegalaxReadInput(InputInfoPtr pInfo)
 			x = dir2;
 			y = dir1;
 		}
-		if (priv->invert_x)
+
+#if 0
+		xf86Msg(X_INFO, "%s: calibration min_x % 5d max_x % 5d min_y % 5d max_y % 5d\n", pInfo->name, priv->min_x, priv->max_x, priv->min_y, priv->max_y);
+#endif
+
+		if (priv->min_x > priv->max_x) {
+			invert_x = 1;
+			min_x = priv->max_x;
+			max_x = priv->min_x;
+		} else {
+			invert_x = priv->invert_x;
+			min_x = priv->min_x;
+			max_x = priv->max_x;
+		}
+
+		if (priv->min_y > priv->max_y) {
+			invert_y = 1;
+			min_y = priv->max_y;
+			max_y = priv->min_y;
+		} else {
+			invert_y = priv->invert_y;
+			min_y = priv->min_y;
+			max_y = priv->max_y;
+		}
+
+#if 0
+		xf86Msg(X_INFO, "%s: raw      x: % 5d y: % 5d button %s\n", pInfo->name, x, y, (pressed ? "DOWN" : "UP"));
+#endif
+		if (invert_x)
 			x = 0x3fff - x;
-		if (priv->invert_y)
+		if (invert_y)
 			y = 0x3fff - y;
 
 #if 0
-		xf86Msg(X_INFO, "%s: x: % 5d y: % 5d button %s\n", pInfo->name, x, y, (pressed ? "DOWN" : "UP"));
+		xf86Msg(X_INFO, "%s: inverted x: % 5d y: % 5d button %s\n", pInfo->name, x, y, (pressed ? "DOWN" : "UP"));
+#endif
+
+		x = xf86ScaleAxis(x, 16383, 0, max_x, min_x);
+		y = xf86ScaleAxis(y, 16383, 0, max_y, min_y);
+
+#if 0
+		xf86Msg(X_INFO, "%s: scaled   x: % 5d y: % 5d button %s\n", pInfo->name, x, y, (pressed ? "DOWN" : "UP"));
 #endif
 
 		if ((priv->proximity == FALSE) && pressed) {
@@ -351,6 +393,7 @@ eetiegalaxReadInput(InputInfoPtr pInfo)
 static int
 eetiegalaxControlProc(InputInfoPtr pInfo, xDeviceCtl * control)
 {
+#if 0
 	xDeviceAbsCalibCtl *c = (xDeviceAbsCalibCtl *)control;
 	EETIeGalaxPrivatePtr priv = (EETIeGalaxPrivatePtr)(pInfo->private);
 
@@ -358,6 +401,65 @@ eetiegalaxControlProc(InputInfoPtr pInfo, xDeviceCtl * control)
 	priv->max_x = c->max_x;
 	priv->min_y = c->min_y;
 	priv->max_y = c->max_y;
+
+	xf86Msg(X_INFO, "%s: calibration called\n", pInfo->name);
+#endif
+
+	return Success;
+}
+
+static int
+eetiegalaxSetProperty(DeviceIntPtr device, Atom atom, XIPropertyValuePtr value, BOOL checkonly) {
+	InputInfoPtr pInfo = device->public.devicePrivate;
+	EETIeGalaxPrivatePtr priv = (EETIeGalaxPrivatePtr)pInfo->private;
+
+	if (atom == prop_invert) {
+		if (value->format != 8 || value->size != 2 || value->type != XA_INTEGER)
+			return BadMatch;
+		if (!checkonly) {
+			BOOL *invert = value->data;
+
+			priv->invert_x = invert[0];
+			priv->invert_y = invert[1];
+
+			xf86Msg(X_INFO, "%s: InvertX / InvertY set to (%d,%d)\n", pInfo->name, priv->invert_x, priv->invert_y);
+		}
+	} else if (atom == prop_calibration) {
+		if (value->format != 32 || value->type != XA_INTEGER)
+			return BadMatch;
+		if (value->size != 4 && value->size != 0)
+			return BadMatch;
+		if (!checkonly) {
+			if (value->size == 0) {
+				priv->min_x = 0;
+				priv->max_x = 16383;
+				priv->min_y = 0;
+				priv->max_y = 16383;
+				xf86Msg(X_INFO, "%s: calibration removed\n", pInfo->name);
+			} else if (value->size == 4) {
+				int *calibration = value->data;
+
+				priv->min_x = calibration[0];
+				priv->max_x = calibration[1];
+				priv->min_y = calibration[2];
+				priv->max_y = calibration[3];
+
+				/* re-set AxisValuator values? */
+
+				xf86Msg(X_INFO, "%s: calibration set (%d,%d,%d,%d)\n", pInfo->name, priv->min_x, priv->max_x, priv->min_y, priv->max_y);
+			}
+		}
+	} else if (atom == prop_swap) {
+		if (value->format != 8 || value->type != XA_INTEGER || value->size != 1)
+			return BadMatch;
+		if (!checkonly) {
+			int *swap_xy = value->data;
+
+			priv->swap_xy = *swap_xy;
+			xf86Msg(X_INFO, "%s: SwapXY set to %d\n", pInfo->name, priv->swap_xy);
+		}
+	} else if (atom == prop_axis_label || atom == prop_btn_label)
+		return BadAccess; /* Read-only properties */
 
 	return Success;
 }
@@ -401,26 +503,33 @@ eetiegalaxDeviceControl(DeviceIntPtr device, int what)
 	EETIeGalaxPrivatePtr priv = (EETIeGalaxPrivatePtr)(pInfo->private);
 	unsigned char map[MAXBUTTONS + 1] = {0, 1};
 	unsigned char i;
-	Bool result;
 	Atom btn_labels[MAXBUTTONS] = {0};
 	Atom axes_labels[2] = {0};
+	int rc;
+	BOOL invert[2];
+	int calibration[4];
 	static const unsigned char eeti_alive[3] = { 0x0a, 0x01, 'A' };
 	static const unsigned char eeti_fwver[3] = { 0x0a, 0x01, 'D' };
 	static const unsigned char eeti_ctrlr[3] = { 0x0a, 0x01, 'E' };
 
-	axes_labels[0] = XIGetKnownProperty(AXIS_LABEL_PROP_ABS_X);
-	axes_labels[1] = XIGetKnownProperty(AXIS_LABEL_PROP_ABS_Y);
-
-	btn_labels[0] = XIGetKnownProperty(BTN_LABEL_PROP_BTN_LEFT);
-#if 0 /* Only one button is supported, don't corrupt memory */
-	btn_labels[1] = XIGetKnownProperty(BTN_LABEL_PROP_BTN_MIDDLE);
-	btn_labels[2] = XIGetKnownProperty(BTN_LABEL_PROP_BTN_RIGHT);
-#endif
 
 	switch (what)
 	{
 	case DEVICE_INIT:
 		device->public.on = FALSE;
+
+		prop_axis_label = XIGetKnownProperty(AXIS_LABEL_PROP);
+		axes_labels[0] = XIGetKnownProperty(AXIS_LABEL_PROP_ABS_X);
+		axes_labels[1] = XIGetKnownProperty(AXIS_LABEL_PROP_ABS_Y);
+		XIChangeDeviceProperty(device, prop_axis_label, XA_ATOM, 32, PropModeReplace, 2, axes_labels, FALSE);
+		XISetDevicePropertyDeletable(device, prop_axis_label, FALSE);
+
+		prop_btn_label = XIGetKnownProperty(BTN_LABEL_PROP);
+		btn_labels[0] = XIGetKnownProperty(BTN_LABEL_PROP_BTN_LEFT);
+		btn_labels[1] = XIGetKnownProperty(BTN_LABEL_PROP_BTN_MIDDLE);
+		btn_labels[2] = XIGetKnownProperty(BTN_LABEL_PROP_BTN_RIGHT);
+		XIChangeDeviceProperty(device, prop_btn_label, XA_ATOM, 32, PropModeReplace, MAXBUTTONS, btn_labels, FALSE);
+		XISetDevicePropertyDeletable(device, prop_btn_label, FALSE);
 
 		for (i = 1; i <= MAXBUTTONS; i++)
 			map[i] = i;
@@ -438,20 +547,20 @@ eetiegalaxDeviceControl(DeviceIntPtr device, int what)
 		InitValuatorAxisStruct(device,
 							0,
 							axes_labels[0],
-							priv->min_x, /* min val */
-							priv->max_x, /* max val */
-							1, /* resolution */
-							0, /* min_res */
-							1, /* max_res */
+							0,	/* min val */
+							16383,	/* max val */
+							1,	/* resolution */
+							0,	/* min_res */
+							1,	/* max_res */
 							Absolute);
 		InitValuatorAxisStruct(device,
 							1,
 							axes_labels[1],
-							priv->min_y, /* min val */
-							priv->max_y, /* max val */
-							1, /* resolution */
-							0, /* min_res */
-							1, /* max_res */
+							0,	/* min val */
+							16383,	/* max val */
+							1,	/* resolution */
+							0,	/* min_res */
+							1,	/* max_res */
 							Absolute);
 		/* allocate the motion history buffer if needed */
 		xf86MotionHistoryAllocate(pInfo);
@@ -465,6 +574,33 @@ eetiegalaxDeviceControl(DeviceIntPtr device, int what)
 			ErrorF("unable to init pointer feedback class device\n");
 			return !Success;
 		}
+
+		invert[0] = priv->invert_x;
+		invert[1] = priv->invert_y;
+		prop_invert = MakeAtom(EVDEV_PROP_INVERT_AXES, strlen(EVDEV_PROP_INVERT_AXES), TRUE);
+		rc = XIChangeDeviceProperty(device, prop_invert, XA_INTEGER, 8, PropModeReplace, 2, invert, FALSE);
+		if (rc != Success)
+			return !Success;
+		XISetDevicePropertyDeletable(device, prop_invert, FALSE);
+
+		prop_calibration = MakeAtom(EVDEV_PROP_CALIBRATION, strlen(EVDEV_PROP_CALIBRATION), TRUE);
+		calibration[0] = priv->min_x;
+		calibration[1] = priv->max_x;
+		calibration[2] = priv->min_y;
+		calibration[3] = priv->max_y;
+		rc = XIChangeDeviceProperty(device, prop_calibration, XA_INTEGER, 32, PropModeReplace, 4, calibration, FALSE);
+		if (rc != Success)
+			return !Success;
+		XISetDevicePropertyDeletable(device, prop_calibration, FALSE);
+
+		prop_swap = MakeAtom(EVDEV_PROP_SWAP_AXES, strlen(EVDEV_PROP_SWAP_AXES), TRUE);
+		rc = XIChangeDeviceProperty(device, prop_swap, XA_INTEGER, 8, PropModeReplace, 1, &priv->swap_xy, FALSE);
+		if (rc != Success)
+			return !Success;
+		XISetDevicePropertyDeletable(device, prop_swap, FALSE);
+
+		XIRegisterPropertyHandler(device, eetiegalaxSetProperty, NULL, NULL);
+
 		break;
 
 	case DEVICE_ON:
@@ -547,9 +683,9 @@ eetiegalaxInit(InputDriverPtr drv, InputInfoPtr pInfo, int flags)
 		return BadAlloc;
 
 	priv->min_x = 0;
-	priv->max_x = 16383;	/* Max 14 bit resolution reported */
+	priv->max_x = 16383;
 	priv->min_y = 0;
-	priv->max_y = 16383;	/* ditto */
+	priv->max_y = 16383;
 	priv->button_down = FALSE;
 	priv->proximity = FALSE;
 	priv->button_number = 1;
@@ -578,27 +714,38 @@ eetiegalaxInit(InputDriverPtr drv, InputInfoPtr pInfo, int flags)
 	pInfo->fd = -1;
 
 	priv->button_number = xf86SetIntOption(pInfo->options, "ButtonNumber", 1);
-	priv->swap_xy = xf86SetBoolOption(pInfo->options, "SwapAxes", 0);
-	priv->invert_y = xf86SetBoolOption(pInfo->options, "InvertY", 0);
+	if (priv->button_number < 0 || priv->button_number > 3) {
+		priv->button_number = 1;
+		xf86Msg(X_WARNING, "%s: ButtonNumber out of range (1-3), set to 1\n", pInfo->name);
+	}
+
+	priv->swap_xy = xf86SetBoolOption(pInfo->options, "SwapXY", 0);
+
 	priv->invert_x = xf86SetBoolOption(pInfo->options, "InvertX", 0);
-	priv->min_x = xf86SetIntOption(pInfo->options, "CalXMin", 0);
-	priv->max_x = xf86SetIntOption(pInfo->options, "CalXMax", 16383);
-	priv->min_y = xf86SetIntOption(pInfo->options, "CalYMin", 0);
-	priv->max_y = xf86SetIntOption(pInfo->options, "CalYMax", 16383);
+	priv->invert_y = xf86SetBoolOption(pInfo->options, "InvertY", 0);
+
+	priv->min_x = xf86SetIntOption(pInfo->options, "MinX", 0);
+	priv->max_x = xf86SetIntOption(pInfo->options, "MaxX", 16383);
+	if (priv->min_x > priv->max_x) {
+		int tmp = priv->min_x;
+		priv->min_x = priv->max_x;
+		priv->max_x = tmp;
+		priv->invert_x = 1;
+		xf86Msg(X_WARNING, "%s: InvertX automatically set to ON because of flipped MinX and MaxX\n", pInfo->name);
+	}
+
+	priv->min_y = xf86SetIntOption(pInfo->options, "MinY", 0);
+	priv->max_y = xf86SetIntOption(pInfo->options, "MaxY", 16383);
+	if (priv->min_y > priv->max_y) {
+		int tmp = priv->min_y;
+		priv->min_y = priv->max_y;
+		priv->max_y = tmp;
+		priv->invert_y = 1;
+		xf86Msg(X_WARNING, "%s: InvertY automatically set to ON because of flipped MinY and MaxY\n", pInfo->name);
+	}
 
 	return Success;
 }
-
-static const char *eetiegalaxDefOpts[] = {
-	"SwapAxes",	"0",
-	"InvertX"	"0",
-	"InvertY",	"0",
-	"CalXMin",	"0",
-	"CalXMax",	"16383",
-	"CalYMin",	"0",
-	"CalYMax",	"16383",
-	NULL
-};
 
 _X_EXPORT InputDriverRec EETIEGALAX = {
 	1,			/* driver version */
@@ -607,12 +754,7 @@ _X_EXPORT InputDriverRec EETIEGALAX = {
 	eetiegalaxInit,	/* pre-init */
 	eetiegalaxUninit,	/* un-init */
 	NULL,			/* module */
-	eetiegalaxDefOpts,	/* default options */
-#if 0
-#ifdef XI86_DRV_CAP_SERVER_FD
-	XI86_DRV_CAP_SERVER_FD
-#endif
-#endif
+	NULL,			/* default options */
 };
 
 /*
