@@ -57,6 +57,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <termios.h>
+#include <poll.h>
 
 #include "eetiegalax.h"
 
@@ -77,15 +78,12 @@ static Atom prop_btn_label;
  *****************************************************************************/
 
 static int
-openSerialDevice(InputInfoPtr pInfo) {
-	const char *devname = xf86SetStrOption(pInfo->options, "Device", NULL);
+openSerialDevice(const char *devname) {
 	int fd;
 	struct termios tio;
 
-	if (!devname) {
-		xf86Msg(X_ERROR, "openSerialDevice: No Device specified.\n");
+	if (!devname)
 		return -1;
-	}
 
 	fd = open(devname, O_RDWR | O_NOCTTY | O_NONBLOCK | O_EXCL);
 	if (fd < 0)
@@ -137,15 +135,20 @@ get_bytes(InputInfoPtr pInfo, unsigned char *buf, int n) {
 		pos++;
 		n--;
 	}
-#if 0
+#if EETI_SERIAL_DEBUG
 	{
+		EETIeGalaxPrivatePtr priv = (EETIeGalaxPrivatePtr)(pInfo->private);
 		char *debug_line = malloc(5 * pos + 1);
 		int i;
 
 		for (i = 0; i < pos; i++)
 			sprintf(debug_line + 5 * i, "0x%02x ", buf[i]);
 		debug_line[5 * pos] = '\0';
-		xf86Msg(X_INFO, "%s: get_bytes read: %s\n", pInfo->name, debug_line);
+		if (priv->child_pid == 0) {
+			fprintf(priv->logfd, "eeti reader process: get_bytes read: %s\n", debug_line);
+			fflush(priv->logfd);
+		} else
+			xf86Msg(X_INFO, "%s: get_bytes read: %s\n", pInfo->name, debug_line);
 		free(debug_line);
 	}
 #endif
@@ -160,6 +163,160 @@ flush_serial(int fd)
 {
 	usleep(200000);
 	tcflush(fd, TCIOFLUSH);
+}
+
+static int eeti_child_exit = 0;
+
+static void eeti_sighandler(int signum)
+{
+	if (signum == SIGINT)
+		eeti_child_exit = 1;
+}
+
+static void
+wait_for_ts_input(InputInfoPtr pInfo)
+{
+	EETIeGalaxPrivatePtr priv = (EETIeGalaxPrivatePtr)(pInfo->private);
+	unsigned char *buf = priv->packet;
+	struct sigaction act;
+	struct pollfd pfd;
+	int ret, rest_length, has_pressure, has_player;
+
+	pInfo->fd = pfd.fd = openSerialDevice(priv->devname);
+	if (pfd.fd == -1)
+		exit(EETI_CHILD_OPEN_FAILED);
+
+#if EETI_SERIAL_DEBUG
+	priv->logfd = fopen("/var/log/eeti.log", "a");
+	if (priv->logfd == NULL)
+		exit(EETI_CHILD_OPEN_FAILED);
+
+	fprintf(priv->logfd, "eeti reader process: started (pid=%d)\n", getpid());
+	fflush(priv->logfd);
+#endif
+
+	act.sa_handler = eeti_sighandler;
+	act.sa_flags = 0;
+	sigaction(SIGINT, &act, NULL);
+
+	pfd.events = POLLIN;
+
+	while (!eeti_child_exit) {
+		ret = poll(&pfd, 1, -1);
+		switch (ret) {
+		case -1:
+			if (errno != EINTR)
+				exit(EETI_CHILD_POLL_FAILED);
+			break;
+		case 0:
+			break;
+		default:
+#if EETI_SERIAL_DEBUG
+			fprintf(priv->logfd, "eeti reader process: poll returned with %d\n", ret);
+			fflush(priv->logfd);
+#endif
+			/*
+			 * Read the first three bytes of the stream and decide what we have
+			 */
+			if (get_bytes(pInfo, buf, 3) != 3) {
+				flush_serial(pInfo->fd);
+#if EETI_SERIAL_DEBUG
+				fprintf(priv->logfd, "eeti reader process: reading first 3 bytes failed\n");
+				fflush(priv->logfd);
+#endif
+				continue;
+			}
+
+			if (buf[0] == 0x0a && buf[2] == '4') {
+#if EETI_SERIAL_DEBUG
+				fprintf(priv->logfd, "eeti reader process: multitouch packet\n");
+				fflush(priv->logfd);
+#endif
+				rest_length = buf[1] - 1;
+
+				/* Multitouch packet? */
+				if (rest_length > 0 && get_bytes(pInfo, &buf[3], rest_length) != rest_length) {
+#if EETI_SERIAL_DEBUG
+					fprintf(priv->logfd, "eeti reader process: reading rest of packet failed\n");
+					fflush(priv->logfd);
+#endif
+					flush_serial(pInfo->fd);
+					continue;
+				}
+				priv->packet_size = buf[1] + 2;
+
+				write(priv->pipefd[1], priv->packet, priv->packet_size);
+			} else if (((buf[0] & 0x80) == 0x80) && ((buf[1] & 0x80) == 0x00) && ((buf[2] & 0x80) == 0x00)) {
+#if EETI_SERIAL_DEBUG
+				fprintf(priv->logfd, "eeti reader process: single touch packet\n");
+				fflush(priv->logfd);
+#endif
+				/*
+				 * The packat is 5 or 6 bytes in total, three of those were
+				 * already read above. The first byte has bit 7 set,
+				 * all others has bit 7 unset. The above check in this if ()
+				 * branch is the most we can do at that point.
+				 */
+				has_pressure = (buf[0] & 0x40);
+				has_player = (buf[0] & 0x20);
+				rest_length = ((has_pressure || has_player) ? 3 : 2);
+
+				if (get_bytes(pInfo, &buf[3], rest_length) != rest_length) {
+#if EETI_SERIAL_DEBUG
+					fprintf(priv->logfd, "eeti reader process: reading rest of packet failed\n");
+					fflush(priv->logfd);
+#endif
+					flush_serial(pInfo->fd);
+					continue;
+				}
+
+				priv->packet_size = rest_length + 3;
+				write(priv->pipefd[1], priv->packet, priv->packet_size);
+#if EETI_SERIAL_DEBUG
+				fprintf(priv->logfd, "eeti reader process: passing %d bytes packet through pipe\n", priv->packet_size);
+				fflush(priv->logfd);
+#endif
+			}
+
+			break;
+		}
+	}
+
+#if EETI_SERIAL_DEBUG
+	fprintf(priv->logfd, "eeti reader process: exiting\n");
+	fflush(priv->logfd);
+	fclose(priv->logfd);
+#endif
+}
+
+static int
+setup_child_process(InputInfoPtr pInfo)
+{
+	EETIeGalaxPrivatePtr priv = (EETIeGalaxPrivatePtr)(pInfo->private);
+
+	if (pipe(priv->pipefd) == -1) {
+		ErrorF("%s: cannot open pipe descriptor\n", pInfo->name);
+		return -1;
+	}
+
+	priv->child_pid = fork();
+	switch (priv->child_pid) {
+	case -1:
+		ErrorF("%s: cannot fork child process\n", pInfo->name);
+		return -1;
+	case 0:
+		/* I am the child. */
+		close(priv->pipefd[0]);
+		priv->pipefd[0] = -1;
+
+		wait_for_ts_input(pInfo);
+		exit(EETI_CHILD_EXIT);
+
+	default:
+		close(priv->pipefd[1]);
+		priv->pipefd[1] = -1;
+		return priv->pipefd[0];
+	}
 }
 
 static void
@@ -227,19 +384,15 @@ eetiegalaxReadInput(InputInfoPtr pInfo)
 	/*
 	 * Read the first three bytes of the stream and decide what we have
 	 */
-	if (get_bytes(pInfo, buf, 3) != 3) {
-		flush_serial(pInfo->fd);
+	if (read(pInfo->fd, buf, 3) != 3)
 		return;
-	}
 
 	if (buf[0] == 0x0a && buf[2] == '4') {
 		rest_length = buf[1] - 1;
 
 		/* Multitouch packet? */
-		if (rest_length > 0 && get_bytes(pInfo, &buf[3], rest_length) != rest_length) {
-			flush_serial(pInfo->fd);
+		if (rest_length > 0 && read(pInfo->fd, &buf[3], rest_length) != rest_length)
 			return;
-		}
 		priv->packet_size = buf[1] + 2;
 
 		/* Ignore the multitouch packet for now... */
@@ -254,10 +407,8 @@ eetiegalaxReadInput(InputInfoPtr pInfo)
 		has_player = (buf[0] & 0x20);
 		rest_length = ((has_pressure || has_player) ? 3 : 2);
 
-		if (get_bytes(pInfo, &buf[3], rest_length) != rest_length) {
-			flush_serial(pInfo->fd);
+		if (read(pInfo->fd, &buf[3], rest_length) != rest_length)
 			return;
-		}
 
 		/*
 		 * Detect resolution: 14, 13, 12 or 11 bits.
@@ -508,10 +659,6 @@ eetiegalaxDeviceControl(DeviceIntPtr device, int what)
 	int rc;
 	BOOL invert[2];
 	int calibration[4];
-	static const unsigned char eeti_alive[3] = { 0x0a, 0x01, 'A' };
-	static const unsigned char eeti_fwver[3] = { 0x0a, 0x01, 'D' };
-	static const unsigned char eeti_ctrlr[3] = { 0x0a, 0x01, 'E' };
-
 
 	switch (what)
 	{
@@ -604,29 +751,9 @@ eetiegalaxDeviceControl(DeviceIntPtr device, int what)
 		break;
 
 	case DEVICE_ON:
-		pInfo->fd = openSerialDevice(pInfo);
-		if (pInfo->fd == -1) {
-			ErrorF("%s: cannot open input device\n", pInfo->name);
+		pInfo->fd = setup_child_process(pInfo);
+		if (pInfo->fd == -1)
 			return !Success;
-		}
-
-		if (eetiegalaxSendCheckResponse(pInfo, eeti_alive, sizeof(eeti_alive)) == Success)
-			xf86Msg(X_INFO, "%s: EETI eGalax serial device detected\n", pInfo->name);
-		else
-			goto error_close_device;
-
-		if (eetiegalaxSendCheckResponse(pInfo, eeti_fwver, sizeof(eeti_fwver)) == Success) {
-			priv->packet[priv->packet_size] = '\0';
-			xf86Msg(X_INFO, "%s: EETI eGalax firmware version: %s\n", pInfo->name, &priv->packet[3]);
-		} else
-			goto error_close_device;
-
-		if (eetiegalaxSendCheckResponse(pInfo, eeti_ctrlr, sizeof(eeti_ctrlr)) == Success) {
-			priv->packet[priv->packet_size] = '\0';
-			xf86Msg(X_INFO, "%s: EETI eGalax controller type: %s\n", pInfo->name, &priv->packet[3]);
-		} else
-			goto error_close_device;
-
 		xf86FlushInput(pInfo->fd);
 		AddEnabledDevice(pInfo->fd);
 		device->public.on = TRUE;
@@ -634,10 +761,15 @@ eetiegalaxDeviceControl(DeviceIntPtr device, int what)
 
 	case DEVICE_OFF:
 	case DEVICE_CLOSE:
+		if (priv->child_pid != -1) {
+			kill(priv->child_pid, SIGINT);
+			priv->child_pid = -1;
+		}
 		if (pInfo->fd != -1) {
 			if (device->public.on == TRUE)
 				RemoveEnabledDevice(pInfo->fd);
-			xf86CloseSerial(pInfo->fd);
+			close(priv->pipefd[0]);
+			priv->pipefd[0] = -1;
 			pInfo->fd = -1;
 		}
 
@@ -648,14 +780,6 @@ eetiegalaxDeviceControl(DeviceIntPtr device, int what)
 		return BadValue;
 	}
 	return Success;
-
-error_close_device:
-	if (pInfo->fd != -1) {
-		xf86CloseSerial(pInfo->fd);
-		pInfo->fd = -1;
-	}
-
-	return !Success;
 }
 
 /*
@@ -677,6 +801,9 @@ eetiegalaxUninit(InputDriverPtr drv, InputInfoPtr pInfo, int flags)
 static int
 eetiegalaxInit(InputDriverPtr drv, InputInfoPtr pInfo, int flags)
 {
+	static const unsigned char eeti_alive[3] = { 0x0a, 0x01, 'A' };
+	static const unsigned char eeti_fwver[3] = { 0x0a, 0x01, 'D' };
+	static const unsigned char eeti_ctrlr[3] = { 0x0a, 0x01, 'E' };
 	EETIeGalaxPrivatePtr priv = calloc (1, sizeof (EETIeGalaxPrivateRec));
 
 	if (!priv)
@@ -703,12 +830,35 @@ eetiegalaxInit(InputDriverPtr drv, InputInfoPtr pInfo, int flags)
 
 	xf86OptionListReport(pInfo->options);
 
+	priv->devname = xf86SetStrOption(pInfo->options, "Device", NULL);
+	if (!priv->devname) {
+		xf86Msg(X_ERROR, "openSerialDevice: No Device specified.\n");
+		return -1;
+	}
+
 	/* Options set below in eetiegalaxDefOpts are used */
-	pInfo->fd = openSerialDevice(pInfo);
+	pInfo->fd = openSerialDevice(priv->devname);
 	if (pInfo->fd == -1) {
 		xf86Msg(X_ERROR, "%s: cannot open input device\n", pInfo->name);
 		return !Success;
 	}
+
+	if (eetiegalaxSendCheckResponse(pInfo, eeti_alive, sizeof(eeti_alive)) == Success)
+		xf86Msg(X_INFO, "%s: EETI eGalax serial device detected\n", pInfo->name);
+	else
+		goto error_close_device;
+
+	if (eetiegalaxSendCheckResponse(pInfo, eeti_fwver, sizeof(eeti_fwver)) == Success) {
+		priv->packet[priv->packet_size] = '\0';
+		xf86Msg(X_INFO, "%s: EETI eGalax firmware version: %s\n", pInfo->name, &priv->packet[3]);
+	} else
+		goto error_close_device;
+
+	if (eetiegalaxSendCheckResponse(pInfo, eeti_ctrlr, sizeof(eeti_ctrlr)) == Success) {
+		priv->packet[priv->packet_size] = '\0';
+		xf86Msg(X_INFO, "%s: EETI eGalax controller type: %s\n", pInfo->name, &priv->packet[3]);
+	} else
+		goto error_close_device;
 
 	xf86CloseSerial(pInfo->fd);
 	pInfo->fd = -1;
@@ -745,6 +895,14 @@ eetiegalaxInit(InputDriverPtr drv, InputInfoPtr pInfo, int flags)
 	}
 
 	return Success;
+
+error_close_device:
+	if (pInfo->fd != -1) {
+		xf86CloseSerial(pInfo->fd);
+		pInfo->fd = -1;
+	}
+
+	return !Success;
 }
 
 _X_EXPORT InputDriverRec EETIEGALAX = {

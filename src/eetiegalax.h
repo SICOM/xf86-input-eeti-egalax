@@ -26,10 +26,24 @@
 #ifndef EETI_EGALAX_H
 #define EETI_EGALAX_H
 
+#include <unistd.h>
+#include <stdio.h>
+
+#define EETI_SERIAL_DEBUG	0
 #define EETI_RESPONSE_SIZE	64
+
+enum {
+	EETI_CHILD_EXIT,
+	EETI_CHILD_OPEN_FAILED,
+	EETI_CHILD_POLL_FAILED,
+};
 
 typedef struct _EETIeGalaxPrivateRec
 {
+	char	*devname;	/* Device name set in xorg.conf		*/
+#if EETI_SERIAL_DEBUG
+	FILE	*logfd;		/* Logfile for the reader process	*/
+#endif
 	int	min_x;		/* Minimum x reported by calibration	*/
 	int	max_x;		/* Maximum x 				*/
 	int	min_y;		/* Minimum y reported by calibration	*/
@@ -40,6 +54,8 @@ typedef struct _EETIeGalaxPrivateRec
 	int	invert_y;	/* option "InvertY"			*/
 	int	invert_x;	/* option "InvertX"			*/
 	int	button_number;	/* option "ButtonNumber"		*/
+	pid_t	child_pid;	/* child process ID			*/
+	int	pipefd[2];	/* bi-directional pipe for comm.	*/
 	int	packet_size;
 	unsigned char packet[EETI_RESPONSE_SIZE];
 } EETIeGalaxPrivateRec, *EETIeGalaxPrivatePtr;
