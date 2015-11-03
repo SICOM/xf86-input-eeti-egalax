@@ -541,22 +541,46 @@ eetiegalaxReadInput(InputInfoPtr pInfo)
 		flush_serial(pInfo->fd);
 }
 
-static int
-eetiegalaxControlProc(InputInfoPtr pInfo, xDeviceCtl * control)
+static void
+eetiegalaxSetCalibration(InputInfoPtr pInfo, int num_calibration, int calibration[4], int init)
 {
-#if 0
-	xDeviceAbsCalibCtl *c = (xDeviceAbsCalibCtl *)control;
 	EETIeGalaxPrivatePtr priv = (EETIeGalaxPrivatePtr)(pInfo->private);
+	DeviceIntPtr device = pInfo->dev;
 
-	priv->min_x = c->min_x;
-	priv->max_x = c->max_x;
-	priv->min_y = c->min_y;
-	priv->max_y = c->max_y;
+	if (num_calibration == 0) {
+		priv->min_x = 0;
+		priv->max_x = 16383;
+		priv->min_y = 0;
+		priv->max_y = 16383;
+	} else if (num_calibration == 4) {
+		BOOL invert[2];
 
-	xf86Msg(X_INFO, "%s: calibration called\n", pInfo->name);
-#endif
+		if (calibration[0] < calibration[1]) {
+			priv->min_x = calibration[0];
+			priv->max_x = calibration[1];
+			priv->invert_x = 0;
+		} else {
+			priv->min_x = calibration[1];
+			priv->max_x = calibration[0];
+			priv->invert_x = 1;
+		}
+		if (calibration[2] < calibration[3]) {
+			priv->min_y = calibration[2];
+			priv->max_y = calibration[3];
+			priv->invert_y = 0;
+		} else {
+			priv->min_y = calibration[3];
+			priv->max_y = calibration[2];
+			priv->invert_y = 1;
+		}
+		invert[0] = priv->invert_x;
+		invert[1] = priv->invert_y;
 
-	return Success;
+		xf86Msg(X_INFO, "%s: calibration set (%d,%d,%d,%d) invert (%d,%d) swapxy %d\n", pInfo->name, priv->min_x, priv->max_x, priv->min_y, priv->max_y, priv->invert_x, priv->invert_y, priv->swap_xy);
+
+		if (!init)
+			XIChangeDeviceProperty(device, prop_invert, XA_INTEGER, 8, PropModeReplace, 2, invert, FALSE);
+	}
 }
 
 static int
@@ -580,26 +604,8 @@ eetiegalaxSetProperty(DeviceIntPtr device, Atom atom, XIPropertyValuePtr value, 
 			return BadMatch;
 		if (value->size != 4 && value->size != 0)
 			return BadMatch;
-		if (!checkonly) {
-			if (value->size == 0) {
-				priv->min_x = 0;
-				priv->max_x = 16383;
-				priv->min_y = 0;
-				priv->max_y = 16383;
-				xf86Msg(X_INFO, "%s: calibration removed\n", pInfo->name);
-			} else if (value->size == 4) {
-				int *calibration = value->data;
-
-				priv->min_x = calibration[0];
-				priv->max_x = calibration[1];
-				priv->min_y = calibration[2];
-				priv->max_y = calibration[3];
-
-				/* re-set AxisValuator values? */
-
-				xf86Msg(X_INFO, "%s: calibration set (%d,%d,%d,%d)\n", pInfo->name, priv->min_x, priv->max_x, priv->min_y, priv->max_y);
-			}
-		}
+		if (!checkonly)
+			eetiegalaxSetCalibration(pInfo, value->size, value->data, 0);
 	} else if (atom == prop_swap) {
 		if (value->format != 8 || value->type != XA_INTEGER || value->size != 1)
 			return BadMatch;
@@ -804,6 +810,8 @@ eetiegalaxInit(InputDriverPtr drv, InputInfoPtr pInfo, int flags)
 	static const unsigned char eeti_alive[3] = { 0x0a, 0x01, 'A' };
 	static const unsigned char eeti_fwver[3] = { 0x0a, 0x01, 'D' };
 	static const unsigned char eeti_ctrlr[3] = { 0x0a, 0x01, 'E' };
+	char *str;
+	int num_calibration, calibration[4];
 	EETIeGalaxPrivatePtr priv = calloc (1, sizeof (EETIeGalaxPrivateRec));
 
 	if (!priv)
@@ -821,10 +829,9 @@ eetiegalaxInit(InputDriverPtr drv, InputInfoPtr pInfo, int flags)
 	priv->invert_y = 0;
 
 	/* Initialise the InputInfoRec. */
-	pInfo->type_name = "EETIeGalax"; /* XI_TOUCHSCREEN */
+	pInfo->type_name = XI_TOUCHSCREEN;
 	pInfo->device_control = eetiegalaxDeviceControl; /* DeviceControl */
 	pInfo->read_input = eetiegalaxReadInput; /* ReadInput */
-	pInfo->control_proc = eetiegalaxControlProc; /* ControlProc */
 	pInfo->switch_mode = NULL;
 	pInfo->private = priv;
 
@@ -869,29 +876,18 @@ eetiegalaxInit(InputDriverPtr drv, InputInfoPtr pInfo, int flags)
 		xf86Msg(X_WARNING, "%s: ButtonNumber out of range (1-3), set to 1\n", pInfo->name);
 	}
 
-	priv->swap_xy = xf86SetBoolOption(pInfo->options, "SwapXY", 0);
+	priv->swap_xy = xf86SetBoolOption(pInfo->options, "SwapAxes", 0);
 
-	priv->invert_x = xf86SetBoolOption(pInfo->options, "InvertX", 0);
-	priv->invert_y = xf86SetBoolOption(pInfo->options, "InvertY", 0);
-
-	priv->min_x = xf86SetIntOption(pInfo->options, "MinX", 0);
-	priv->max_x = xf86SetIntOption(pInfo->options, "MaxX", 16383);
-	if (priv->min_x > priv->max_x) {
-		int tmp = priv->min_x;
-		priv->min_x = priv->max_x;
-		priv->max_x = tmp;
-		priv->invert_x = 1;
-		xf86Msg(X_WARNING, "%s: InvertX automatically set to ON because of flipped MinX and MaxX\n", pInfo->name);
-	}
-
-	priv->min_y = xf86SetIntOption(pInfo->options, "MinY", 0);
-	priv->max_y = xf86SetIntOption(pInfo->options, "MaxY", 16383);
-	if (priv->min_y > priv->max_y) {
-		int tmp = priv->min_y;
-		priv->min_y = priv->max_y;
-		priv->max_y = tmp;
-		priv->invert_y = 1;
-		xf86Msg(X_WARNING, "%s: InvertY automatically set to ON because of flipped MinY and MaxY\n", pInfo->name);
+	str = xf86CheckStrOption(pInfo->options, "Calibration", NULL);
+	if (str) {
+		num_calibration = sscanf(str, "%d %d %d %d",
+									&calibration[0], &calibration[1],
+									&calibration[2], &calibration[3]);
+		free(str);
+		if (num_calibration == 4)
+			eetiegalaxSetCalibration(pInfo, num_calibration, calibration, 1);
+		else
+			xf86IDrvMsg(pInfo, X_ERROR, "Insufficient calibration factors (%d). Ignoring calibration\n", num_calibration);
 	}
 
 	return Success;

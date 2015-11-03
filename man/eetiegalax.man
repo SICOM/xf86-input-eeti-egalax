@@ -32,24 +32,21 @@ Specifies the device through which the device can be accessed.  This will
 generally be of the form \*q/dev/ttySx\*q, where x is some integer.
 .TP 7
 .BI "Option \*qSwapXY\*q \*q" Bool \*q
-Swap x/y axes. Property: "Evdev Axes Swap".
-.TP 7
-.BI "Option \*qInvertX\*q \*q" Bool \*q
-.TP 7
-.BI "Option \*qInvertY\*q \*q" Bool \*q
-Invert the given axis. Property: "Evdev Axis Inversion".
+Swap x/y axes. Property:
+.BI \*qEvdev\ Axes\ Swap\*q
 .TP 7
 .BI "Option \*qButtonNumber\*q \*q" integer \*q
 Specifies the button number the touchscreen sends when pressed. Default: 1
 .TP 7
-.BI "Option \*qMinX\*q \*q" integer \*q
-.TP 7
-.BI "Option \*qMaxX\*q \*q" integer \*q
-.TP 7
-.BI "Option \*qMinY\*q \*q" integer \*q
-.TP 7
-.BI "Option \*qMaxY\*q \*q" integer \*q
-Specifies the calibration data for the touchscreen. Property: "Evdev Axis Calibration".
+.BI "Option \*qCalibration\*q \*q" string \*q
+Specifies the calibration data for the touchscreen.The string contains
+a whitespace separated list of 4 integer values, order min-x, max-x,
+min-y, max-y. If min-x is greater than max-x, or if min-y is greater
+than max-y, the X or Y coordinates then implicitly inverted.
+Properties:
+.BI \*qEvdev\ Axis\ Calibration\*q
+and
+.BI \*qEvdev\ Axis\ Inversion\*q
 .SH SUPPORTED PROPERTIES
 The following properties are provided by the
 .B eetiegalax
