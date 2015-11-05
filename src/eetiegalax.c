@@ -604,6 +604,14 @@ eetiegalaxSetProperty(DeviceIntPtr device, Atom atom, XIPropertyValuePtr value, 
 			return BadMatch;
 		if (value->size != 4 && value->size != 0)
 			return BadMatch;
+		if (value->size == 4) {
+			int *calibration = value->data;
+			if (calibration[0] < 0 || calibration[0] > 16383 ||
+				calibration[1] < 0 || calibration[1] > 16383 ||
+				calibration[2] < 0 || calibration[2] > 16383 ||
+				calibration[3] < 0 || calibration[3] > 16383)
+			return BadMatch;
+		}
 		if (!checkonly)
 			eetiegalaxSetCalibration(pInfo, value->size, value->data, 0);
 	} else if (atom == prop_swap) {
